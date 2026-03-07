@@ -77,10 +77,6 @@ html, body, [data-testid="stAppViewContainer"] {
     background-color: #3E4A59 !important; /* 조금 더 연한 어두운 바탕 */
     color: #FFFFFF !important; /* 글자는 흰색 */
 }
-[class*="st-"] { 
-    font-family: 'Inter', 'Pretendard', sans-serif; 
-    color: #FFFFFF;
-}
 
 /* ---- 사이드바 (스크리닝 설정) 다크 테마 ---- */
 [data-testid="stSidebar"] > div:first-child {
@@ -182,9 +178,62 @@ div[data-testid="stVerticalBlock"] > div:has(div.element-container) {
 a.naver-link { display: inline-flex; align-items: center; justify-content: center; gap: 4px; background: transparent; color: #1D3557 !important; text-decoration: none !important; padding: 6px 14px; border: 1px solid #1D3557; border-radius: 6px; font-size: 0.75rem; font-weight: 600; transition: all 0.2s ease; }
 a.naver-link:hover { background: rgba(29,53,87,0.05); box-shadow: 0 2px 8px rgba(29,53,87,0.15); transform: translateY(-1px); }
 
-div.stButton > button { background: linear-gradient(135deg, #ffffff, #f8f9fa) !important; color: #111827 !important; border: 1px solid #E9ECEF !important; border-radius: 8px !important; font-family: 'Inter', sans-serif !important; font-weight: 700 !important; font-size: 0.95rem !important; transition: all 0.3s ease !important; width: 100% !important; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1) !important; }
-div.stButton > button p { color: #111827 !important; } /* 텍스트 강제 검은색 지정 */
-div.stButton > button:hover { border-color: #111827 !important; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1) !important; transform: translateY(-2px); }
+/* 모든 형태의 버튼(일반/다운로드) 강제통일 (초강력) */
+div.stButton > button, div.stDownloadButton > button, button[kind="secondary"] {
+    background: linear-gradient(135deg, #ffffff, #f8f9fa) !important;
+    border: 1px solid #E9ECEF !important;
+    border-radius: 8px !important;
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1) !important;
+    width: 100% !important;
+}
+
+div.stButton > button *, div.stDownloadButton > button *, button[kind="secondary"] * {
+    color: #111827 !important;
+    font-weight: 800 !important;
+    font-size: 0.95rem !important;
+    font-family: 'Inter', 'Pretendard', sans-serif !important;
+}
+
+div.stButton > button:hover, div.stDownloadButton > button:hover, button[kind="secondary"]:hover {
+    border-color: #111827 !important;
+    box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1) !important;
+    transform: translateY(-2px);
+}
+
+/* 탭 버튼 스타일 3D 강제 통일 및 크기 향상 */
+div[data-baseweb="tab-list"] {
+    gap: 12px;
+}
+button[data-baseweb="tab"] {
+    background: linear-gradient(135deg, #2D3139, #3E4A59) !important;
+    border: 1px solid #4C566A !important;
+    border-radius: 10px !important;
+    padding: 12px 24px !important;
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3), 0 2px 4px -2px rgba(0,0,0,0.3) !important;
+    transition: all 0.3s ease !important;
+    margin-right: 5px;
+}
+button[data-baseweb="tab"] > div[data-testid="stMarkdownContainer"] > p {
+    color: #A0AEC0 !important;
+    font-weight: 700 !important;
+    font-size: 1.15rem !important; /* 폰트 강제 키움 */
+}
+button[data-baseweb="tab"]:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 10px 15px -3px rgba(0,0,0,0.4) !important;
+    border-color: #A0AEC0 !important;
+}
+button[data-baseweb="tab"][aria-selected="true"] {
+    background: linear-gradient(135deg, #1D3557, #457B9D) !important;
+    border-color: #62efff !important;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.1), 0 6px 12px rgba(98, 239, 255, 0.2) !important;
+}
+button[data-baseweb="tab"][aria-selected="true"] > div[data-testid="stMarkdownContainer"] > p {
+    color: #FFFFFF !important;
+    font-weight: 900 !important;
+    font-size: 1.25rem !important; /* 선택시 폰트 더 키움 */
+}
+
 .stProgress > div > div { background: #1D3557 !important; }
 
 .cache-info { background: #FFFFFF; border-left: 3px solid #1D3557; border-radius: 4px; padding: 10px 14px; margin: 8px 0; color: #6C757D; font-size: 0.75rem; text-align: left; font-family: 'JetBrains Mono', monospace; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
@@ -213,6 +262,44 @@ HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
     'Accept-Language': 'ko-KR,ko;q=0.9',
 }
+
+def get_session():
+    if 'req_session' not in st.session_state:
+        st.session_state.req_session = requests.Session()
+        st.session_state.req_session.headers.update(HEADERS)
+    return st.session_state.req_session
+
+@st.cache_data(ttl=86400)
+def get_all_naver_sectors():
+    sector_map = {}
+    try:
+        url = 'https://finance.naver.com/sise/sise_group.naver?type=upjong'
+        res = requests.get(url, headers=HEADERS, timeout=5)
+        res.encoding = 'euc-kr'
+        soup = BeautifulSoup(res.text, 'lxml')
+        links = soup.select('table.type_1 td a')
+        
+        def fetch_sector(a_tag):
+            s_name = a_tag.text.strip()
+            link = 'https://finance.naver.com' + a_tag['href']
+            sub_res = requests.get(link, headers=HEADERS, timeout=5)
+            sub_res.encoding = 'euc-kr'
+            sub_soup = BeautifulSoup(sub_res.text, 'lxml')
+            codes = []
+            for sub_a in sub_soup.select('table.type_5 td.name a'):
+                c = sub_a['href'].split('code=')[-1]
+                codes.append((c, s_name))
+            return codes
+            
+        with ThreadPoolExecutor(max_workers=10) as ex:
+            futures = [ex.submit(fetch_sector, a) for a in links]
+            for f in as_completed(futures):
+                try:
+                    for c, s in f.result():
+                        sector_map[c] = s
+                except: pass
+    except: pass
+    return sector_map
 
 def get_stock_list_naver(market="0"):
     market_name = "KOSPI" if market == "0" else "KOSDAQ"
@@ -609,6 +696,83 @@ def check_password():
 # ============================================================
 # 메인 UI
 # ============================================================
+def render_stock_card(row, rank):
+    code = row.get('종목코드',''); name = row.get('종목명',''); market = row.get('시장','')
+    price = row.get('현재가',0); volume = row.get('Recent_Volume',0)
+    mcap = row.get('시가총액',0); score = row.get('종합성장점수',0); avail = row.get('데이터_가용성','-')
+    rg25,rg26,rg27 = row.get('매출액_성장률_2025',np.nan),row.get('매출액_성장률_2026',np.nan),row.get('매출액_성장률_2027',np.nan)
+    og25,og26,og27 = row.get('영업이익_성장률_2025',np.nan),row.get('영업이익_성장률_2026',np.nan),row.get('영업이익_성장률_2027',np.nan)
+    nurl = f"https://finance.naver.com/item/main.naver?code={code}"
+    badge = f'<span class="badge-kospi">KOSPI</span>' if market=='KOSPI' else f'<span class="badge-kosdaq">KOSDAQ</span>'
+    sc = "#2EAA7B" if score>=1000 else "#4A90E2" if score>=500 else "#8B949E"
+    si2 = "⭐" if score>=500 else "▪"
+    
+    def fv(v):
+        if pd.isna(v): return '-'
+        return f'{v:,.0f}'
+    def fv_color(v):
+        if pd.isna(v): return '#CED4DA'
+        return '#FF6B6B' if v > 0 else '#4A90E2'
+
+    rv23,rv24,rv25,rv26,rv27 = row.get('매출액_2023',np.nan),row.get('매출액_2024',np.nan),row.get('매출액_2025',np.nan),row.get('매출액_2026',np.nan),row.get('매출액_2027',np.nan)
+    ov23,ov24,ov25,ov26,ov27 = row.get('영업이익_2023',np.nan),row.get('영업이익_2024',np.nan),row.get('영업이익_2025',np.nan),row.get('영업이익_2026',np.nan),row.get('영업이익_2027',np.nan)
+
+    hdr = 'display:flex;gap:0;font-size:0.68rem;color:#6C757D;margin-bottom:4px;border-bottom:1px solid #E9ECEF;padding-bottom:2px;'
+    rw = 'display:flex;gap:0;font-size:0.75rem;margin-bottom:2px;font-family:\\\'JetBrains Mono\\\', monospace;'
+    lb = 'width:70px;padding:2px 6px;color:#6C757D;font-size:0.7rem;flex-shrink:0;'
+    c = 'flex:1;text-align:right;padding:2px 6px;'
+    ce = 'flex:1;text-align:right;padding:2px 6px;font-weight:700;'
+
+    evidence_html = f'<div style="margin-top:12px;padding:10px;background-color:#F8F9FA;border-radius:4px;border:1px solid #E9ECEF;"><div style="color:#6C757D;font-size:0.65rem;font-weight:600;margin-bottom:6px;">DATA SOURCE TBL (KRW 100M)</div><div class="evidence-scroll"><div style="{hdr}"><div style="{lb}"></div><div style="{c}">\\\'23</div><div style="{c}">\\\'24</div><div style="{c}color:#1D3557;">\\\'25E</div><div style="{c}color:#1D3557;">\\\'26E</div><div style="{c}color:#1D3557;">\\\'27E</div></div><div style="{rw}"><div style="{lb}">REV</div><div style="{c}color:{fv_color(rv23)};">{fv(rv23)}</div><div style="{c}color:{fv_color(rv24)};">{fv(rv24)}</div><div style="{ce}color:{fv_color(rv25)};">{fv(rv25)}</div><div style="{ce}color:{fv_color(rv26)};">{fv(rv26)}</div><div style="{ce}color:{fv_color(rv27)};">{fv(rv27)}</div></div><div style="{rw}"><div style="{lb}">OP</div><div style="{c}color:{fv_color(ov23)};">{fv(ov23)}</div><div style="{c}color:{fv_color(ov24)};">{fv(ov24)}</div><div style="{ce}color:{fv_color(ov25)};">{fv(ov25)}</div><div style="{ce}color:{fv_color(ov26)};">{fv(ov26)}</div><div style="{ce}color:{fv_color(ov27)};">{fv(ov27)}</div></div></div></div>'
+
+    st.markdown(f"""
+    <div class="quant-card-light">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;">
+            <div style="flex:1;min-width:260px;">
+                <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:8px;border-bottom:1px solid #E9ECEF;padding-bottom:6px;">
+                    <span style="color:#1D3557;font-family:'JetBrains Mono',monospace;font-size:0.85rem;">#{rank}</span>
+                    <span class="stock-name">{name}</span> {badge}
+                    <span class="stock-code">{code}</span>
+                </div>
+                <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:4px;">
+                    <div><span style="color:#6C757D;font-size:0.7rem;">PRICE</span><br><span style="color:#212529;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:1rem;">{format_price(price)}</span></div>
+                    <div><span style="color:#6C757D;font-size:0.7rem;">VOL</span><br><span style="color:#212529;font-family:'JetBrains Mono',monospace;font-size:0.9rem;">{format_volume(volume)}</span></div>
+                    <div><span style="color:#6C757D;font-size:0.7rem;">MCAP</span><br><span style="color:#212529;font-family:'JetBrains Mono',monospace;font-size:0.9rem;">{format_number(mcap)}</span></div>
+                    <div><span style="color:#6C757D;font-size:0.7rem;">AVAIL</span><br><span style="color:#1D3557;font-family:'JetBrains Mono',monospace;font-size:0.85rem;">{avail}</span></div>
+                </div>
+            </div>
+            <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;">
+                <div style="text-align:center;"><span style="color:#6C757D;font-size:0.65rem;">REV G%</span>
+                    <div style="display:flex;gap:8px;margin-top:2px;">
+                        <div style="text-align:center;"><span style="color:#6C757D;font-size:0.6rem;">25E</span><br>{format_growth(rg25)}</div>
+                        <div style="text-align:center;"><span style="color:#6C757D;font-size:0.6rem;">26E</span><br>{format_growth(rg26)}</div>
+                        <div style="text-align:center;"><span style="color:#6C757D;font-size:0.6rem;">27E</span><br>{format_growth(rg27)}</div>
+                    </div></div>
+                <div style="text-align:center;"><span style="color:#6C757D;font-size:0.65rem;">OP G%</span>
+                    <div style="display:flex;gap:8px;margin-top:2px;">
+                        <div style="text-align:center;"><span style="color:#6C757D;font-size:0.6rem;">25E</span><br>{format_growth(og25)}</div>
+                        <div style="text-align:center;"><span style="color:#6C757D;font-size:0.6rem;">26E</span><br>{format_growth(og26)}</div>
+                        <div style="text-align:center;"><span style="color:#6C757D;font-size:0.6rem;">27E</span><br>{format_growth(og27)}</div>
+                    </div></div>
+                <div style="display:flex;gap:12px;align-items:center;">
+                    <div style="text-align:center;padding:6px 10px;background:#F8F9FA;border:1px solid #E9ECEF;border-radius:4px;">
+                        <span style="color:#6C757D;font-size:0.65rem;">VISIBILITY P{row.get('미래가시성_순위', 4)}</span><br>
+                        <span style="color:#212529;font-family:'JetBrains Mono',monospace;font-weight:800;font-size:1.05rem;">{row.get('미래가시성_성장률',0):,.1f}%</span>
+                    </div>
+                    <div style="text-align:center;padding:6px 10px;background:#F8F9FA;border:1px solid #E9ECEF;border-radius:4px;">
+                        <span style="color:#6C757D;font-size:0.65rem;">TSCORE</span><br>
+                        <span class="rainbow-score" style="font-family:'JetBrains Mono',monospace;font-weight:900;font-size:1.15rem;">{si2} {score:,.0f}</span>
+                    </div>
+                    <a href="{nurl}" target="_blank" class="naver-link" style="margin-left:4px;">
+                        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg> 
+                        DETAIL
+                    </a>
+                </div>
+            </div>
+        </div>
+        {evidence_html}
+    </div>""", unsafe_allow_html=True)
+
 def main():
     if not check_password():
         return
@@ -702,6 +866,10 @@ def main():
         # 필터 적용 (즉시)
         df = apply_filters(all_df.copy(), rev_thresh, op_thresh, min_vol, markets, req_min_rev_500, req_op_profit, drop_huge_loss)
 
+        # 업종 매핑 적용
+        sector_map = get_all_naver_sectors()
+        df['업종'] = df['종목코드'].map(sector_map).fillna('기타')
+
         # 메트릭 카드
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -724,7 +892,7 @@ def main():
             return
 
         # 탭
-        tab1, tab2 = st.tabs(["📋 종목 카드 뷰", "📊 데이터 테이블"])
+        tab1, tab2, tab3 = st.tabs(["📋 종목 카드 뷰", "🏢 업종별 테마순위", "📊 데이터 테이블"])
 
         with tab1:
             st.markdown(f'<div style="color:#FFFFFF; font-size:0.85rem; font-family:\'JetBrains Mono\', monospace; margin-bottom:10px;">> SCRENNER RESULTS: {len(df)} FOUND</div>', unsafe_allow_html=True)
@@ -760,86 +928,29 @@ def main():
 
             si = (st.session_state['page']-1)*page_size
             for rank, (_, row) in enumerate(df_s.iloc[si:si+page_size].iterrows(), start=si+1):
-                code = row.get('종목코드',''); name = row.get('종목명',''); market = row.get('시장','')
-                price = row.get('현재가',0); volume = row.get('Recent_Volume',0)
-                mcap = row.get('시가총액',0); score = row.get('종합성장점수',0); avail = row.get('데이터_가용성','-')
-                rg25,rg26,rg27 = row.get('매출액_성장률_2025',np.nan),row.get('매출액_성장률_2026',np.nan),row.get('매출액_성장률_2027',np.nan)
-                og25,og26,og27 = row.get('영업이익_성장률_2025',np.nan),row.get('영업이익_성장률_2026',np.nan),row.get('영업이익_성장률_2027',np.nan)
-                nurl = f"https://finance.naver.com/item/main.naver?code={code}"
-                badge = f'<span class="badge-kospi">KOSPI</span>' if market=='KOSPI' else f'<span class="badge-kosdaq">KOSDAQ</span>'
-                # Compact List 렌더링 스타일 수정
-                sc = "#2EAA7B" if score>=1000 else "#4A90E2" if score>=500 else "#8B949E"
-                si2 = "⭐" if score>=500 else "▪"
+                render_stock_card(row, rank)
                 
-                # 근거 데이터: 실제 매출액/영업이익 수치
-                def fv(v):
-                    if pd.isna(v): return '-'
-                    return f'{v:,.0f}'
-                def fv_color(v):
-                    if pd.isna(v): return '#CED4DA'
-                    return '#FF6B6B' if v > 0 else '#4A90E2'
-
-                rv23,rv24,rv25,rv26,rv27 = row.get('매출액_2023',np.nan),row.get('매출액_2024',np.nan),row.get('매출액_2025',np.nan),row.get('매출액_2026',np.nan),row.get('매출액_2027',np.nan)
-                ov23,ov24,ov25,ov26,ov27 = row.get('영업이익_2023',np.nan),row.get('영업이익_2024',np.nan),row.get('영업이익_2025',np.nan),row.get('영업이익_2026',np.nan),row.get('영업이익_2027',np.nan)
-
-                hdr = 'display:flex;gap:0;font-size:0.68rem;color:#6C757D;margin-bottom:4px;border-bottom:1px solid #E9ECEF;padding-bottom:2px;'
-                rw = 'display:flex;gap:0;font-size:0.75rem;margin-bottom:2px;font-family:\'JetBrains Mono\', monospace;'
-                lb = 'width:70px;padding:2px 6px;color:#6C757D;font-size:0.7rem;flex-shrink:0;'
-                c = 'flex:1;text-align:right;padding:2px 6px;'
-                ce = 'flex:1;text-align:right;padding:2px 6px;font-weight:700;'
-
-                evidence_html = f'<div style="margin-top:12px;padding:10px;background-color:#F8F9FA;border-radius:4px;border:1px solid #E9ECEF;"><div style="color:#6C757D;font-size:0.65rem;font-weight:600;margin-bottom:6px;">DATA SOURCE TBL (KRW 100M)</div><div class="evidence-scroll"><div style="{hdr}"><div style="{lb}"></div><div style="{c}">\'23</div><div style="{c}">\'24</div><div style="{c}color:#1D3557;">\'25E</div><div style="{c}color:#1D3557;">\'26E</div><div style="{c}color:#1D3557;">\'27E</div></div><div style="{rw}"><div style="{lb}">REV</div><div style="{c}color:{fv_color(rv23)};">{fv(rv23)}</div><div style="{c}color:{fv_color(rv24)};">{fv(rv24)}</div><div style="{ce}color:{fv_color(rv25)};">{fv(rv25)}</div><div style="{ce}color:{fv_color(rv26)};">{fv(rv26)}</div><div style="{ce}color:{fv_color(rv27)};">{fv(rv27)}</div></div><div style="{rw}"><div style="{lb}">OP</div><div style="{c}color:{fv_color(ov23)};">{fv(ov23)}</div><div style="{c}color:{fv_color(ov24)};">{fv(ov24)}</div><div style="{ce}color:{fv_color(ov25)};">{fv(ov25)}</div><div style="{ce}color:{fv_color(ov26)};">{fv(ov26)}</div><div style="{ce}color:{fv_color(ov27)};">{fv(ov27)}</div></div></div></div>'
-
-                st.markdown(f"""
-                <div class="quant-card-light">
-                    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;">
-                        <div style="flex:1;min-width:260px;">
-                            <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:8px;border-bottom:1px solid #E9ECEF;padding-bottom:6px;">
-                                <span style="color:#1D3557;font-family:'JetBrains Mono',monospace;font-size:0.85rem;">#{rank}</span>
-                                <span class="stock-name">{name}</span> {badge}
-                                <span class="stock-code">{code}</span>
-                            </div>
-                            <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:4px;">
-                                <div><span style="color:#6C757D;font-size:0.7rem;">PRICE</span><br><span style="color:#212529;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:1rem;">{format_price(price)}</span></div>
-                                <div><span style="color:#6C757D;font-size:0.7rem;">VOL</span><br><span style="color:#212529;font-family:'JetBrains Mono',monospace;font-size:0.9rem;">{format_volume(volume)}</span></div>
-                                <div><span style="color:#6C757D;font-size:0.7rem;">MCAP</span><br><span style="color:#212529;font-family:'JetBrains Mono',monospace;font-size:0.9rem;">{format_number(mcap)}</span></div>
-                                <div><span style="color:#6C757D;font-size:0.7rem;">AVAIL</span><br><span style="color:#1D3557;font-family:'JetBrains Mono',monospace;font-size:0.85rem;">{avail}</span></div>
-                            </div>
-                        </div>
-                        <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;">
-                            <div style="text-align:center;"><span style="color:#6C757D;font-size:0.65rem;">REV G%</span>
-                                <div style="display:flex;gap:8px;margin-top:2px;">
-                                    <div style="text-align:center;"><span style="color:#6C757D;font-size:0.6rem;">25E</span><br>{format_growth(rg25)}</div>
-                                    <div style="text-align:center;"><span style="color:#6C757D;font-size:0.6rem;">26E</span><br>{format_growth(rg26)}</div>
-                                    <div style="text-align:center;"><span style="color:#6C757D;font-size:0.6rem;">27E</span><br>{format_growth(rg27)}</div>
-                                </div></div>
-                            <div style="text-align:center;"><span style="color:#6C757D;font-size:0.65rem;">OP G%</span>
-                                <div style="display:flex;gap:8px;margin-top:2px;">
-                                    <div style="text-align:center;"><span style="color:#6C757D;font-size:0.6rem;">25E</span><br>{format_growth(og25)}</div>
-                                    <div style="text-align:center;"><span style="color:#6C757D;font-size:0.6rem;">26E</span><br>{format_growth(og26)}</div>
-                                    <div style="text-align:center;"><span style="color:#6C757D;font-size:0.6rem;">27E</span><br>{format_growth(og27)}</div>
-                                </div></div>
-                            <!-- 가시성 순위 및 종합점수 -->
-                            <div style="display:flex;gap:12px;align-items:center;">
-                                <div style="text-align:center;padding:6px 10px;background:#F8F9FA;border:1px solid #E9ECEF;border-radius:4px;">
-                                    <span style="color:#6C757D;font-size:0.65rem;">VISIBILITY P{row.get('미래가시성_순위', 4)}</span><br>
-                                    <span style="color:#212529;font-family:'JetBrains Mono',monospace;font-weight:800;font-size:1.05rem;">{row.get('미래가시성_성장률',0):,.1f}%</span>
-                                </div>
-                                <div style="text-align:center;padding:6px 10px;background:#F8F9FA;border:1px solid #E9ECEF;border-radius:4px;">
-                                    <span style="color:#6C757D;font-size:0.65rem;">TSCORE</span><br>
-                                    <span class="rainbow-score" style="font-family:'JetBrains Mono',monospace;font-weight:900;font-size:1.15rem;">{si2} {score:,.0f}</span>
-                                </div>
-                                <a href="{nurl}" target="_blank" class="naver-link" style="margin-left:4px;">
-                                    <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg> 
-                                    DETAIL
-                                </a>
-                            </div>
-                        </div>
-                    </div>
-                    {evidence_html}
-                </div>""", unsafe_allow_html=True)
-
         with tab2:
+            st.markdown("<h3 style='color:#FFFFFF;'>🏢 업종별 수익 테마 순위</h3>", unsafe_allow_html=True)
+            if '업종' in df.columns:
+                # Calculate average score per industry
+                ind_df = df.groupby('업종')['영업이익_최대성장률'].mean().reset_index()
+                ind_df.rename(columns={'영업이익_최대성장률': '평균_성장률'}, inplace=True)
+                ind_df = ind_df.sort_values('평균_성장률', ascending=False).reset_index(drop=True)
+                
+                # Display Expanders
+                for i, row in ind_df.iterrows():
+                    ind_name = row['업종']
+                    avg_score = row['평균_성장률']
+                    comp_df = df[df['업종'] == ind_name].sort_values('영업이익_최대성장률', ascending=False)
+                    with st.expander(f"🏅 {i+1}위: {ind_name} (평균 영업이익 성장률: {avg_score:,.1f}% / {len(comp_df)}종목)"):
+                        st.markdown("<div style='margin-bottom:8px;font-size:0.85rem;color:#A0AEC0;'>상위 10개 종목만 표시됩니다.</div>", unsafe_allow_html=True)
+                        for rank, (_, row) in enumerate(comp_df.head(10).iterrows(), start=1):
+                            render_stock_card(row, rank)
+            else:
+                st.warning("데이터에 '업종' 정보가 포함되어 있지 않습니다.")
+
+        with tab3:
             st.markdown("### 📊 전체 데이터 테이블")
             dc1, dc2 = st.columns(2)
             with dc1:
@@ -848,9 +959,25 @@ def main():
             with dc2:
                 try:
                     import io; buf = io.BytesIO()
-                    with pd.ExcelWriter(buf, engine='openpyxl') as w: df.to_excel(w, index=False, sheet_name='초고성장종목')
-                    st.download_button("📥 Excel 다운로드", data=buf.getvalue(), file_name=f"high_growth_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
-                except: pass
+                    import re
+                    ILLEGAL_CHARACTERS_RE = re.compile(r'[\000-\010]|[\013-\014]|[\016-\037]')
+                    df_clean = df.copy()
+                    for col in df_clean.columns:
+                        if df_clean[col].dtype == 'object':
+                            df_clean[col] = df_clean[col].apply(lambda x: ILLEGAL_CHARACTERS_RE.sub('', str(x)) if x is not None else x)
+                    
+                    with pd.ExcelWriter(buf, engine='openpyxl') as w: 
+                        df_clean.to_excel(w, index=False, sheet_name='초고성장종목')
+                    
+                    st.download_button(
+                        label="📥 Excel 다운로드", 
+                        data=buf.getvalue(), 
+                        file_name=f"high_growth_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.xlsx", 
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
+                        use_container_width=True
+                    )
+                except Exception as e:
+                    st.error(f"엑셀 오류: {str(e)}", icon="🚨")
             show_cols = ['종목명','종목코드','시장','현재가','Recent_Volume','시가총액','데이터_가용성',
                 '매출액_성장률_2025','매출액_성장률_2026','매출액_성장률_2027','매출액_최대성장률',
                 '영업이익_성장률_2025','영업이익_성장률_2026','영업이익_성장률_2027','영업이익_최대성장률','종합성장점수']
