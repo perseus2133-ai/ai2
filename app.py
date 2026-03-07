@@ -71,45 +71,137 @@ def get_cache_info():
 # ============================================================
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;900&display=swap');
-html, body, [class*="st-"] { font-family: 'Noto Sans KR', sans-serif; }
-.hero-header { background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(168,85,247,0.1)); border: 1px solid rgba(99,102,241,0.3); border-radius: 16px; padding: 28px 36px; margin-bottom: 24px; text-align: center; backdrop-filter: blur(10px); }
-.hero-header h1 { background: linear-gradient(135deg, #818cf8, #c084fc, #f472b6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-size: 2.2rem; font-weight: 900; margin: 0 0 6px 0; }
-.hero-header p { color: #94a3b8; font-size: 0.95rem; margin: 0; }
-.metric-card { background: linear-gradient(135deg, rgba(30,30,60,0.9), rgba(40,40,80,0.8)); border: 1px solid rgba(99,102,241,0.25); border-radius: 14px; padding: 20px 22px; text-align: center; transition: all 0.3s ease; }
-.metric-card:hover { border-color: rgba(129,140,248,0.5); transform: translateY(-2px); box-shadow: 0 8px 25px rgba(99,102,241,0.15); }
-.metric-card .metric-value { font-size: 2rem; font-weight: 800; background: linear-gradient(135deg, #818cf8, #c084fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 4px 0; }
-.metric-card .metric-label { color: #94a3b8; font-size: 0.82rem; font-weight: 500; letter-spacing: 0.5px; }
-.badge-kospi { display: inline-block; background: linear-gradient(135deg, #3b82f6, #6366f1); color: white; padding: 2px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; }
-.badge-kosdaq { display: inline-block; background: linear-gradient(135deg, #10b981, #059669); color: white; padding: 2px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; }
-.stock-card { background: linear-gradient(135deg, rgba(25,25,55,0.95), rgba(35,35,70,0.9)); border: 1px solid rgba(99,102,241,0.2); border-radius: 14px; padding: 18px 20px; margin-bottom: 12px; transition: all 0.3s ease; }
-.stock-card:hover { border-color: rgba(129,140,248,0.5); box-shadow: 0 6px 20px rgba(99,102,241,0.12); }
-.stock-name { font-size: 1.05rem; font-weight: 700; color: #e2e8f0; }
-.stock-code { color: #64748b; font-size: 0.8rem; }
-.growth-positive { color: #f87171; font-weight: 700; }
-.growth-negative { color: #60a5fa; font-weight: 700; }
-.growth-mega { color: #fbbf24; font-weight: 800; text-shadow: 0 0 10px rgba(251,191,36,0.3); }
-a.naver-link { display: inline-flex; align-items: center; gap: 4px; background: linear-gradient(135deg, #059669, #10b981); color: white !important; text-decoration: none !important; padding: 5px 14px; border-radius: 8px; font-size: 0.78rem; font-weight: 600; transition: all 0.2s ease; }
-a.naver-link:hover { background: linear-gradient(135deg, #047857, #059669); box-shadow: 0 4px 12px rgba(16,185,129,0.3); }
-div.stButton > button { background: linear-gradient(135deg, #6366f1, #8b5cf6) !important; color: white !important; border: none !important; border-radius: 12px !important; padding: 12px 32px !important; font-weight: 700 !important; font-size: 1rem !important; transition: all 0.3s ease !important; width: 100% !important; }
-div.stButton > button:hover { background: linear-gradient(135deg, #4f46e5, #7c3aed) !important; box-shadow: 0 8px 25px rgba(99,102,241,0.35) !important; }
-.stProgress > div > div { background: linear-gradient(90deg, #6366f1, #a855f7, #ec4899) !important; }
-.cache-info { background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3); border-radius: 10px; padding: 10px 14px; margin: 8px 0; color: #34d399; font-size: 0.8rem; text-align: center; }
-.cache-none { background: rgba(251,191,36,0.1); border: 1px solid rgba(251,191,36,0.3); border-radius: 10px; padding: 10px 14px; margin: 8px 0; color: #fbbf24; font-size: 0.8rem; text-align: center; }
-.divider { border: none; border-top: 1px solid rgba(99,102,241,0.15); margin: 24px 0; }
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;700&display=swap');
+html, body, [data-testid="stAppViewContainer"] { 
+    font-family: 'Inter', 'Pretendard', sans-serif; 
+    background-color: #3E4A59 !important; /* 조금 더 연한 어두운 바탕 */
+    color: #FFFFFF !important; /* 글자는 흰색 */
+}
+[class*="st-"] { 
+    font-family: 'Inter', 'Pretendard', sans-serif; 
+    color: #FFFFFF;
+}
+
+/* ---- 사이드바 (스크리닝 설정) 다크 테마 ---- */
+[data-testid="stSidebar"] > div:first-child {
+    background-color: #1A1C24 !important;
+}
+[data-testid="stSidebar"] p, 
+[data-testid="stSidebar"] div, 
+[data-testid="stSidebar"] span, 
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {
+    color: #E2E8F0 !important;
+}
+
+/* ---- 드롭다운 (selectbox) 텍스트 명시적 흰색 적용 ---- */
+div[data-baseweb="select"] > div {
+    background-color: #1A1C24 !important;
+    color: #FFFFFF !important;
+}
+div[data-baseweb="select"] span {
+    color: #FFFFFF !important;
+}
+div[data-baseweb="popover"] ul {
+    background-color: #1A1C24 !important;
+}
+div[data-baseweb="popover"] li {
+    color: #FFFFFF !important;
+}
+
+/* 체크박스와 슬라이더는 .streamlit/config.toml 에서 테마 색상으로 제어됩니다 */
+
+/* 전역 스타일 및 호버 효과 정의 */
+div[data-testid="stVerticalBlock"] > div:has(div.element-container) {
+    transition: all 0.2s ease-in-out;
+}
+
+.hero-header { border-bottom: 1px solid #4C566A; padding-bottom: 16px; margin-bottom: 24px; text-align: left; background: transparent !important; border-radius: 0; padding: 0 0 16px 0; }
+.hero-header p { color: #A0AEC0; font-size: 0.9rem; margin: 0; font-family: 'JetBrains Mono', monospace; }
+
+.quant-card-light {
+    background-color: #FFFFFF;
+    color: #212529; /* 카드 내부 텍스트는 어둡게 */
+    border: 1px solid #E9ECEF;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 12px;
+    transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); /* 입체감 강화 */
+}
+
+.quant-card-light:hover {
+    transform: translateY(-5px) scale(1.01);
+    background-color: #FFFFF0 !important; /* 연노란색 배경으로 부드럽게 변경 */
+    box-shadow: 0 15px 25px rgba(0,0,0,0.15);
+    border: 1px solid transparent;
+    border-image: linear-gradient(to right, #ff2400, #e81d1d, #e8b71d, #1de840, #1ddde8, #2b1de8, #dd00f3, #dd00f3);
+    border-image-slice: 1;
+}
+
+.stock-name { font-size: 1.05rem; font-weight: 700; color: #212529 !important; }
+.stock-code { color: #1D3557; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; margin-left: 4px; }
+
+.badge-kospi { display: inline-block; background-color: #F8F9FA; border: 1px solid #1D3557; color: #1D3557; padding: 2px 8px; border-radius: 4px; font-size: 0.65rem; font-weight: 600; margin-left: 6px; }
+.badge-kosdaq { display: inline-block; background-color: #F8F9FA; border: 1px solid #1D3557; color: #1D3557; padding: 2px 8px; border-radius: 4px; font-size: 0.65rem; font-weight: 600; margin-left: 6px; }
+
+/* 무지개빛 흐르는 텍스트 애니메이션 */
+@keyframes rainbow-text {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+.rainbow-title {
+    font-weight: 900;
+    font-size: 2.2rem;
+    background: linear-gradient(to right, #62efff, #ffb3fd, #ffeead, #62efff);
+    background-size: 400% 400%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: rainbow-text 5s ease infinite;
+    display: flex; align-items: center; gap: 8px;
+    margin: 0 0 6px 0;
+}
+
+.rainbow-score {
+    background: linear-gradient(to right, #62efff, #ffb3fd, #ffeead, #62efff);
+    background-size: 400% 400%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: rainbow-text 5s ease infinite;
+}
+
+.metric-card { text-align: center; background: rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 15px; border: 1px solid #4C566A; }
+.metric-label { color: #A0AEC0; font-size: 0.8rem; margin-bottom: 4px; }
+.metric-value { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 1.4rem; color: #FFFFFF !important; }
+.growth-positive { color: #FF6B6B; font-weight: 600; font-family: 'JetBrains Mono', monospace; } /* 상승 (Coral Red) */
+.growth-negative { color: #4A90E2; font-weight: 600; font-family: 'JetBrains Mono', monospace; } /* 하락 (Electric Blue) */
+.growth-mega { color: #2EAA7B; font-weight: 800; font-family: 'JetBrains Mono', monospace; } /* 수퍼성장 (Emerald Green) */
+
+a.naver-link { display: inline-flex; align-items: center; justify-content: center; gap: 4px; background: transparent; color: #1D3557 !important; text-decoration: none !important; padding: 6px 14px; border: 1px solid #1D3557; border-radius: 6px; font-size: 0.75rem; font-weight: 600; transition: all 0.2s ease; }
+a.naver-link:hover { background: rgba(29,53,87,0.05); box-shadow: 0 2px 8px rgba(29,53,87,0.15); transform: translateY(-1px); }
+
+div.stButton > button { background: linear-gradient(135deg, #ffffff, #f8f9fa) !important; color: #111827 !important; border: 1px solid #E9ECEF !important; border-radius: 8px !important; font-family: 'Inter', sans-serif !important; font-weight: 700 !important; font-size: 0.95rem !important; transition: all 0.3s ease !important; width: 100% !important; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1) !important; }
+div.stButton > button p { color: #111827 !important; } /* 텍스트 강제 검은색 지정 */
+div.stButton > button:hover { border-color: #111827 !important; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1) !important; transform: translateY(-2px); }
+.stProgress > div > div { background: #1D3557 !important; }
+
+.cache-info { background: #FFFFFF; border-left: 3px solid #1D3557; border-radius: 4px; padding: 10px 14px; margin: 8px 0; color: #6C757D; font-size: 0.75rem; text-align: left; font-family: 'JetBrains Mono', monospace; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
+.cache-none { background: #FFFFFF; border-left: 3px solid #E74C3C; border-radius: 4px; padding: 10px 14px; margin: 8px 0; color: #E74C3C; font-size: 0.75rem; text-align: left; font-family: 'JetBrains Mono', monospace; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
+.divider { border: none; border-top: 1px solid #E9ECEF; margin: 24px 0; }
+
+.stMarkdown { margin-bottom: 0px !important; }
+
 #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
 
-/* 모바일 반응형 전용 사이즈 (화면 너비 768px 이하) */
 @media (max-width: 768px) {
-    .hero-header { padding: 20px 16px; }
-    .hero-header h1 { font-size: 1.6rem; }
-    .hero-header p { font-size: 0.85rem; }
-    .metric-card { padding: 12px 10px; }
-    .metric-card .metric-value { font-size: 1.3rem; }
-    .metric-card .metric-label { font-size: 0.7rem; }
-    .stock-card { padding: 14px 12px; }
-    .stock-name { font-size: 0.95rem; }
+    .quant-card-light { padding: 12px 10px; }
+    .hero-header { padding-bottom: 12px; }
+    .rainbow-title { font-size: 1.5rem; }
+    .hero-header p { font-size: 0.75rem; }
     div.evidence-scroll { overflow-x: auto; white-space: nowrap; padding-bottom: 5px; }
+    div.evidence-scroll > div { min-width: 480px; }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -472,11 +564,11 @@ def format_number(v):
     return f"{v:,.0f}" if abs(v) >= 10000 else f"{v:,.1f}"
 
 def format_growth(v):
-    if pd.isna(v): return '<span style="color:#64748b;">-</span>'
-    if v >= 500: return f'<span class="growth-mega">🔥 {v:,.1f}%</span>'
+    if pd.isna(v): return '<span style="color:#CED4DA;">-</span>'
+    if v >= 100: return f'<span class="growth-mega">🔥 {v:,.1f}%</span>'
     if v > 0: return f'<span class="growth-positive">▲ {v:,.1f}%</span>'
     if v < 0: return f'<span class="growth-negative">▼ {v:,.1f}%</span>'
-    return f'<span style="color:#94a3b8;">{v:,.1f}%</span>'
+    return f'<span style="color:#6C757D; font-family:\'JetBrains Mono\', monospace;">{v:,.1f}%</span>'
 
 def format_price(v):
     return f"{int(v):,}원" if (not pd.isna(v) and v > 0) else "-"
@@ -500,17 +592,17 @@ def check_password():
             st.session_state["password_correct"] = False
 
     if "password_correct" not in st.session_state:
-        st.markdown('<h3 style="text-align:center; color:#e2e8f0; margin-top:50px;">🔒 초고성장 종목 발굴 시스템</h3>', unsafe_allow_html=True)
+        st.markdown('<div class="hero-header"><div class="rainbow-title"><svg viewBox="0 0 24 24" width="28" height="28" stroke="currentColor" stroke-width="2" fill="none"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg> SYSTEM LOCKED</div><p>Quant Screening Terminal · Authentication Required</p></div>', unsafe_allow_html=True)
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            st.text_input("접속 비밀번호를 입력해주세요", type="password", on_change=password_entered, key="password")
+            st.text_input("ENTER PASSWORD", type="password", on_change=password_entered, key="password")
         return False
     elif not st.session_state["password_correct"]:
-        st.markdown('<h3 style="text-align:center; color:#e2e8f0; margin-top:50px;">🔒 초고성장 종목 발굴 시스템</h3>', unsafe_allow_html=True)
+        st.markdown('<div class="hero-header"><div class="rainbow-title"><svg viewBox="0 0 24 24" width="28" height="28" stroke="currentColor" stroke-width="2" fill="none"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg> SYSTEM LOCKED</div><p>Quant Screening Terminal · Authentication Required</p></div>', unsafe_allow_html=True)
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            st.text_input("접속 비밀번호를 입력해주세요", type="password", on_change=password_entered, key="password")
-            st.error("비밀번호가 올바르지 않습니다.")
+            st.text_input("ENTER PASSWORD", type="password", on_change=password_entered, key="password")
+            st.error("Authentication Failed.")
         return False
     return True
 
@@ -523,8 +615,11 @@ def main():
 
     st.markdown("""
     <div class="hero-header">
-        <h1>🚀 초고성장 종목 발굴 시스템</h1>
-        <p>FnGuide 컨센서스 기반 · 매출/영업이익 비약적 상승 종목 실시간 스크리닝</p>
+        <div class="rainbow-title">
+            <svg viewBox="0 0 24 24" width="28" height="28" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+            QUANT TERMINAL
+        </div>
+        <p>HIGH-GROWTH STOCK SCREENER · CONSENSUS ALGORITHM</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -632,7 +727,7 @@ def main():
         tab1, tab2 = st.tabs(["📋 종목 카드 뷰", "📊 데이터 테이블"])
 
         with tab1:
-            st.markdown(f"### 🏆 발굴된 {len(df)}개 종목")
+            st.markdown(f'<div style="color:#FFFFFF; font-size:0.85rem; font-family:\'JetBrains Mono\', monospace; margin-bottom:10px;">> SCRENNER RESULTS: {len(df)} FOUND</div>', unsafe_allow_html=True)
             scol1, scol2 = st.columns([2, 1])
             with scol1:
                 sort_options = {
@@ -659,7 +754,7 @@ def main():
             with pc1:
                 if st.button("◀ 이전", disabled=st.session_state['page']<=1): st.session_state['page']-=1; st.rerun()
             with pc2:
-                st.markdown(f"<div style='text-align:center;color:#94a3b8;padding:8px;'>페이지 {st.session_state['page']} / {total_pages}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='text-align:center;color:#FFFFFF;padding:8px;'>페이지 {st.session_state['page']} / {total_pages}</div>", unsafe_allow_html=True)
             with pc3:
                 if st.button("다음 ▶", disabled=st.session_state['page']>=total_pages): st.session_state['page']+=1; st.rerun()
 
@@ -672,59 +767,73 @@ def main():
                 og25,og26,og27 = row.get('영업이익_성장률_2025',np.nan),row.get('영업이익_성장률_2026',np.nan),row.get('영업이익_성장률_2027',np.nan)
                 nurl = f"https://finance.naver.com/item/main.naver?code={code}"
                 badge = f'<span class="badge-kospi">KOSPI</span>' if market=='KOSPI' else f'<span class="badge-kosdaq">KOSDAQ</span>'
-                sc = "#fbbf24" if score>=1000 else "#f87171" if score>=500 else "#818cf8"
-                si2 = "🔥" if score>=1000 else "🚀" if score>=500 else "📈"
-
+                # Compact List 렌더링 스타일 수정
+                sc = "#2EAA7B" if score>=1000 else "#4A90E2" if score>=500 else "#8B949E"
+                si2 = "⭐" if score>=500 else "▪"
+                
                 # 근거 데이터: 실제 매출액/영업이익 수치
                 def fv(v):
                     if pd.isna(v): return '-'
                     return f'{v:,.0f}'
                 def fv_color(v):
-                    if pd.isna(v): return '#475569'
-                    return '#60a5fa' if v < 0 else '#e2e8f0'
+                    if pd.isna(v): return '#CED4DA'
+                    return '#FF6B6B' if v > 0 else '#4A90E2'
 
                 rv23,rv24,rv25,rv26,rv27 = row.get('매출액_2023',np.nan),row.get('매출액_2024',np.nan),row.get('매출액_2025',np.nan),row.get('매출액_2026',np.nan),row.get('매출액_2027',np.nan)
                 ov23,ov24,ov25,ov26,ov27 = row.get('영업이익_2023',np.nan),row.get('영업이익_2024',np.nan),row.get('영업이익_2025',np.nan),row.get('영업이익_2026',np.nan),row.get('영업이익_2027',np.nan)
 
-                hdr = 'display:flex;gap:0;font-size:0.68rem;color:#64748b;margin-bottom:2px;'
-                rw = 'display:flex;gap:0;font-size:0.78rem;margin-bottom:1px;'
-                lb = 'width:70px;padding:2px 6px;color:#94a3b8;font-weight:600;font-size:0.72rem;flex-shrink:0;'
+                hdr = 'display:flex;gap:0;font-size:0.68rem;color:#6C757D;margin-bottom:4px;border-bottom:1px solid #E9ECEF;padding-bottom:2px;'
+                rw = 'display:flex;gap:0;font-size:0.75rem;margin-bottom:2px;font-family:\'JetBrains Mono\', monospace;'
+                lb = 'width:70px;padding:2px 6px;color:#6C757D;font-size:0.7rem;flex-shrink:0;'
                 c = 'flex:1;text-align:right;padding:2px 6px;'
                 ce = 'flex:1;text-align:right;padding:2px 6px;font-weight:700;'
 
-                evidence_html = f'<div style="margin-top:10px;padding:10px 14px;background:rgba(99,102,241,0.06);border-radius:10px;border:1px solid rgba(99,102,241,0.12);"><div style="color:#818cf8;font-size:0.72rem;font-weight:700;margin-bottom:6px;">근거 데이터 (억원)</div><div class="evidence-scroll"><div style="{hdr}"><div style="{lb}"></div><div style="{c}">23</div><div style="{c}">24</div><div style="{c}color:#a5b4fc;">25E</div><div style="{c}color:#a5b4fc;">26E</div><div style="{c}color:#a5b4fc;">27E</div></div><div style="{rw}"><div style="{lb}">매출액</div><div style="{c}color:{fv_color(rv23)};">{fv(rv23)}</div><div style="{c}color:{fv_color(rv24)};">{fv(rv24)}</div><div style="{ce}color:{fv_color(rv25)};">{fv(rv25)}</div><div style="{ce}color:{fv_color(rv26)};">{fv(rv26)}</div><div style="{ce}color:{fv_color(rv27)};">{fv(rv27)}</div></div><div style="{rw}"><div style="{lb}">영업이익</div><div style="{c}color:{fv_color(ov23)};">{fv(ov23)}</div><div style="{c}color:{fv_color(ov24)};">{fv(ov24)}</div><div style="{ce}color:{fv_color(ov25)};">{fv(ov25)}</div><div style="{ce}color:{fv_color(ov26)};">{fv(ov26)}</div><div style="{ce}color:{fv_color(ov27)};">{fv(ov27)}</div></div></div></div>'
+                evidence_html = f'<div style="margin-top:12px;padding:10px;background-color:#F8F9FA;border-radius:4px;border:1px solid #E9ECEF;"><div style="color:#6C757D;font-size:0.65rem;font-weight:600;margin-bottom:6px;">DATA SOURCE TBL (KRW 100M)</div><div class="evidence-scroll"><div style="{hdr}"><div style="{lb}"></div><div style="{c}">\'23</div><div style="{c}">\'24</div><div style="{c}color:#1D3557;">\'25E</div><div style="{c}color:#1D3557;">\'26E</div><div style="{c}color:#1D3557;">\'27E</div></div><div style="{rw}"><div style="{lb}">REV</div><div style="{c}color:{fv_color(rv23)};">{fv(rv23)}</div><div style="{c}color:{fv_color(rv24)};">{fv(rv24)}</div><div style="{ce}color:{fv_color(rv25)};">{fv(rv25)}</div><div style="{ce}color:{fv_color(rv26)};">{fv(rv26)}</div><div style="{ce}color:{fv_color(rv27)};">{fv(rv27)}</div></div><div style="{rw}"><div style="{lb}">OP</div><div style="{c}color:{fv_color(ov23)};">{fv(ov23)}</div><div style="{c}color:{fv_color(ov24)};">{fv(ov24)}</div><div style="{ce}color:{fv_color(ov25)};">{fv(ov25)}</div><div style="{ce}color:{fv_color(ov26)};">{fv(ov26)}</div><div style="{ce}color:{fv_color(ov27)};">{fv(ov27)}</div></div></div></div>'
 
                 st.markdown(f"""
-                <div class="stock-card">
+                <div class="quant-card-light">
                     <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;">
-                        <div style="flex:1;min-width:200px;">
-                            <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
-                                <span style="color:#4f46e5;font-weight:800;font-size:1.1rem;">#{rank}</span>
+                        <div style="flex:1;min-width:260px;">
+                            <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:8px;border-bottom:1px solid #E9ECEF;padding-bottom:6px;">
+                                <span style="color:#1D3557;font-family:'JetBrains Mono',monospace;font-size:0.85rem;">#{rank}</span>
                                 <span class="stock-name">{name}</span> {badge}
                                 <span class="stock-code">{code}</span>
                             </div>
-                            <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:8px;">
-                                <div><span style="color:#64748b;font-size:0.75rem;">현재가</span><br><span style="color:#e2e8f0;font-weight:700;font-size:1.05rem;">{format_price(price)}</span></div>
-                                <div><span style="color:#64748b;font-size:0.75rem;">거래량</span><br><span style="color:#e2e8f0;font-weight:600;">{format_volume(volume)}</span></div>
-                                <div><span style="color:#64748b;font-size:0.75rem;">시가총액</span><br><span style="color:#e2e8f0;font-weight:600;">{format_number(mcap)}억</span></div>
-                                <div><span style="color:#64748b;font-size:0.75rem;">데이터</span><br><span style="color:#a5b4fc;font-weight:600;">{avail}</span></div>
+                            <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:4px;">
+                                <div><span style="color:#6C757D;font-size:0.7rem;">PRICE</span><br><span style="color:#212529;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:1rem;">{format_price(price)}</span></div>
+                                <div><span style="color:#6C757D;font-size:0.7rem;">VOL</span><br><span style="color:#212529;font-family:'JetBrains Mono',monospace;font-size:0.9rem;">{format_volume(volume)}</span></div>
+                                <div><span style="color:#6C757D;font-size:0.7rem;">MCAP</span><br><span style="color:#212529;font-family:'JetBrains Mono',monospace;font-size:0.9rem;">{format_number(mcap)}</span></div>
+                                <div><span style="color:#6C757D;font-size:0.7rem;">AVAIL</span><br><span style="color:#1D3557;font-family:'JetBrains Mono',monospace;font-size:0.85rem;">{avail}</span></div>
                             </div>
                         </div>
-                        <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;">
-                            <div style="text-align:center;"><span style="color:#64748b;font-size:0.7rem;">매출 성장률</span>
-                                <div style="display:flex;gap:6px;margin-top:3px;">
-                                    <div style="text-align:center;"><span style="color:#475569;font-size:0.65rem;">25E</span><br>{format_growth(rg25)}</div>
-                                    <div style="text-align:center;"><span style="color:#475569;font-size:0.65rem;">26E</span><br>{format_growth(rg26)}</div>
-                                    <div style="text-align:center;"><span style="color:#475569;font-size:0.65rem;">27E</span><br>{format_growth(rg27)}</div>
+                        <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;">
+                            <div style="text-align:center;"><span style="color:#6C757D;font-size:0.65rem;">REV G%</span>
+                                <div style="display:flex;gap:8px;margin-top:2px;">
+                                    <div style="text-align:center;"><span style="color:#6C757D;font-size:0.6rem;">25E</span><br>{format_growth(rg25)}</div>
+                                    <div style="text-align:center;"><span style="color:#6C757D;font-size:0.6rem;">26E</span><br>{format_growth(rg26)}</div>
+                                    <div style="text-align:center;"><span style="color:#6C757D;font-size:0.6rem;">27E</span><br>{format_growth(rg27)}</div>
                                 </div></div>
-                            <div style="text-align:center;"><span style="color:#64748b;font-size:0.7rem;">영업이익 성장률</span>
-                                <div style="display:flex;gap:6px;margin-top:3px;">
-                                    <div style="text-align:center;"><span style="color:#475569;font-size:0.65rem;">25E</span><br>{format_growth(og25)}</div>
-                                    <div style="text-align:center;"><span style="color:#475569;font-size:0.65rem;">26E</span><br>{format_growth(og26)}</div>
-                                    <div style="text-align:center;"><span style="color:#475569;font-size:0.65rem;">27E</span><br>{format_growth(og27)}</div>
+                            <div style="text-align:center;"><span style="color:#6C757D;font-size:0.65rem;">OP G%</span>
+                                <div style="display:flex;gap:8px;margin-top:2px;">
+                                    <div style="text-align:center;"><span style="color:#6C757D;font-size:0.6rem;">25E</span><br>{format_growth(og25)}</div>
+                                    <div style="text-align:center;"><span style="color:#6C757D;font-size:0.6rem;">26E</span><br>{format_growth(og26)}</div>
+                                    <div style="text-align:center;"><span style="color:#6C757D;font-size:0.6rem;">27E</span><br>{format_growth(og27)}</div>
                                 </div></div>
                             <!-- 가시성 순위 및 종합점수 -->
-                            <div style="display:flex;gap:12px;align-items:center;"><div style="text-align:center;padding:8px 12px;background:rgba(236,72,153,0.1);border-radius:10px;border:1px solid rgba(236,72,153,0.2);margin-right:2px;"><span style="color:#64748b;font-size:0.65rem;">가시성 {row.get('미래가시성_순위', 4)}순위</span><br><span style="color:#ec4899;font-weight:800;font-size:1.1rem;">{row.get('미래가시성_성장률',0):,.1f}%</span></div><div style="text-align:center;padding:8px 12px;background:rgba(99,102,241,0.1);border-radius:10px;border:1px solid rgba(99,102,241,0.2);"><span style="color:#64748b;font-size:0.65rem;">종합점수</span><br><span style="color:{sc};font-weight:800;font-size:1.1rem;">{si2} {score:,.0f}</span></div><a href="{nurl}" target="_blank" class="naver-link" style="margin-left:4px;">📊 네이버 금융</a></div>
+                            <div style="display:flex;gap:12px;align-items:center;">
+                                <div style="text-align:center;padding:6px 10px;background:#F8F9FA;border:1px solid #E9ECEF;border-radius:4px;">
+                                    <span style="color:#6C757D;font-size:0.65rem;">VISIBILITY P{row.get('미래가시성_순위', 4)}</span><br>
+                                    <span style="color:#212529;font-family:'JetBrains Mono',monospace;font-weight:800;font-size:1.05rem;">{row.get('미래가시성_성장률',0):,.1f}%</span>
+                                </div>
+                                <div style="text-align:center;padding:6px 10px;background:#F8F9FA;border:1px solid #E9ECEF;border-radius:4px;">
+                                    <span style="color:#6C757D;font-size:0.65rem;">TSCORE</span><br>
+                                    <span class="rainbow-score" style="font-family:'JetBrains Mono',monospace;font-weight:900;font-size:1.15rem;">{si2} {score:,.0f}</span>
+                                </div>
+                                <a href="{nurl}" target="_blank" class="naver-link" style="margin-left:4px;">
+                                    <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg> 
+                                    DETAIL
+                                </a>
+                            </div>
                         </div>
                     </div>
                     {evidence_html}
