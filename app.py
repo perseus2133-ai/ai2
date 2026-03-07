@@ -487,11 +487,40 @@ def format_volume(v):
     if v >= 1_000: return f"{v/1_000:.0f}K"
     return f"{int(v)}"
 
+# ============================================================
+# 접근 제어 (비밀번호)
+# ============================================================
+def check_password():
+    """Returns `True` if the user had the correct password."""
+    def password_entered():
+        if st.session_state["password"] == "9084":
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        st.markdown('<h3 style="text-align:center; color:#e2e8f0; margin-top:50px;">🔒 초고성장 종목 발굴 시스템</h3>', unsafe_allow_html=True)
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.text_input("접속 비밀번호를 입력해주세요", type="password", on_change=password_entered, key="password")
+        return False
+    elif not st.session_state["password_correct"]:
+        st.markdown('<h3 style="text-align:center; color:#e2e8f0; margin-top:50px;">🔒 초고성장 종목 발굴 시스템</h3>', unsafe_allow_html=True)
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.text_input("접속 비밀번호를 입력해주세요", type="password", on_change=password_entered, key="password")
+            st.error("비밀번호가 올바르지 않습니다.")
+        return False
+    return True
 
 # ============================================================
 # 메인 UI
 # ============================================================
 def main():
+    if not check_password():
+        return
+
     st.markdown("""
     <div class="hero-header">
         <h1>🚀 초고성장 종목 발굴 시스템</h1>
