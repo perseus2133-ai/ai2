@@ -128,7 +128,7 @@ div[data-testid="stVerticalBlock"] > div:has(div.element-container) {
 
 .quant-card-light:hover {
     transform: translateY(-5px) scale(1.01);
-    background-color: #FFFFF0 !important; /* 연노란색 배경으로 부드럽게 변경 */
+    background-color: #FFF4A3 !important; /* 눈에 확 띄는 밝은 연노랑(바나나색)으로 변경 */
     box-shadow: 0 15px 25px rgba(0,0,0,0.15);
     border: 1px solid transparent;
     border-image: linear-gradient(to right, #ff2400, #e81d1d, #e8b71d, #1de840, #1ddde8, #2b1de8, #dd00f3, #dd00f3);
@@ -823,7 +823,7 @@ def main():
         drop_huge_loss = st.checkbox("매출 초과 적자기업 제외", value=True, help="영업손실 규모가 매출액보다 큰 경우(바이오/성장주 특화) 무조건 제외합니다.")
 
         st.markdown("### ⚡ 성능 설정")
-        max_workers = st.slider("병렬 워커 수", 5, 30, 20, 5)
+        max_workers = st.slider("병렬 워커 수", 5, 100, 50, 5)
 
         st.markdown("---")
 
