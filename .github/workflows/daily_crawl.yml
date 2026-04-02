@@ -1,0 +1,48 @@
+name: 📊 Daily Stock Crawl
+
+on:
+  schedule:
+    # 매일 오전 6시 KST (= 21:00 UTC 전날)
+    - cron: '0 21 * * *'
+  workflow_dispatch:
+    # 수동 실행 버튼 (GitHub Actions 탭에서 직접 실행 가능)
+    inputs:
+      reason:
+        description: '수동 실행 사유'
+        required: false
+        default: '수동 크롤링'
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30   # 최대 30분 (보통 5~10분 소요)
+
+    steps:
+      - name: ⬇️ 코드 체크아웃
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🐍 Python 3.11 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 📦 패키지 설치
+        run: |
+          pip install --upgrade pip
+          pip install requests beautifulsoup4 lxml pandas numpy
+
+      - name: 🔄 크롤링 실행
+        run: python crawl_script.py
+
+      - name: 💾 데이터 커밋 & 푸시
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/
+          # 변경사항 없으면 exit 0 (에러 없이 종료)
+          git diff --staged --quiet && echo "변경사항 없음" && exit 0
+          git commit -m "🤖 Auto crawl: $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M KST')"
+          git push
