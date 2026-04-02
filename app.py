@@ -16,7 +16,6 @@ import re
 import time
 import datetime
 import threading
-import pickle
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import warnings
@@ -36,34 +35,44 @@ st.set_page_config(
 # ============================================================
 # 캐시 설정
 # ============================================================
-CACHE_DIR = os.path.dirname(os.path.abspath(__file__))
-CACHE_FILE = os.path.join(CACHE_DIR, "consensus_cache.pkl")
+
+import json
+
+BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR  = os.path.join(BASE_DIR, "data")
+CSV_FILE  = os.path.join(DATA_DIR, "consensus_data.csv")
+META_FILE = os.path.join(DATA_DIR, "meta.json")
 
 def save_cache(data_df, meta):
-    """전체 컨센서스 데이터를 pickle 캐시로 저장"""
-    cache = {'data': data_df, 'meta': meta, 'timestamp': datetime.datetime.now()}
-    with open(CACHE_FILE, 'wb') as f:
-        pickle.dump(cache, f)
+    os.makedirs(DATA_DIR, exist_ok=True)
+    data_df.to_csv(CSV_FILE, index=False, encoding='utf-8-sig')
+    meta['timestamp'] = datetime.datetime.now().isoformat()
+    with open(META_FILE, 'w', encoding='utf-8') as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
 
 def load_cache():
-    """캐시 파일 로드. 없으면 None 반환"""
-    if not os.path.exists(CACHE_FILE):
+    if not os.path.exists(CSV_FILE):
         return None
     try:
-        with open(CACHE_FILE, 'rb') as f:
-            return pickle.load(f)
+        df = pd.read_csv(CSV_FILE, encoding='utf-8-sig')
+        meta = {}
+        if os.path.exists(META_FILE):
+            with open(META_FILE, 'r', encoding='utf-8') as f:
+                meta = json.load(f)
+        ts_str = meta.get('timestamp', '')
+        ts = datetime.datetime.fromisoformat(ts_str) if ts_str else datetime.datetime.now()
+        return {'data': df, 'meta': meta, 'timestamp': ts}
     except Exception:
         return None
 
 def get_cache_info():
-    """캐시 파일 정보 반환"""
     cache = load_cache()
     if cache is None:
         return None
     return {
-        'timestamp': cache['timestamp'],
+        'timestamp':    cache['timestamp'],
         'total_stocks': len(cache['data']),
-        'meta': cache.get('meta', {}),
+        'meta':         cache.get('meta', {}),
     }
 
 # ============================================================
