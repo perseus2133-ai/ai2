@@ -16,9 +16,12 @@ import threading
 import os
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from zoneinfo import ZoneInfo
 import warnings
 
 warnings.filterwarnings('ignore')
+
+KST = ZoneInfo("Asia/Seoul")
 
 # ============================================================
 # 저장 경로 설정
@@ -27,8 +30,13 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 CSV_FILE  = os.path.join(DATA_DIR, "consensus_data.csv")
 META_FILE = os.path.join(DATA_DIR, "meta.json")
+HISTORY_DIR = os.path.join(DATA_DIR, "history")
 
 os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(HISTORY_DIR, exist_ok=True)
+
+def now_kst():
+    return datetime.datetime.now(KST)
 
 # ============================================================
 # 상수
@@ -47,7 +55,7 @@ def get_session():
     return thread_local.session
 
 # ============================================================
-# 크롤링 함수 (app.py와 동일)
+# 크롤링 함수
 # ============================================================
 def parse_numeric(text):
     if not text or text.strip() in ['', '-', 'N/A', 'nan', '\xa0']: return np.nan
@@ -154,6 +162,74 @@ def scrape_fnguide_supplement(stock_code, stock_name=''):
         return {}
 
 
+def scrape_naver_per_pbr_roe(stock_code):
+    """네이버 증권에서 PER, PBR, ROE를 크롤링한다."""
+    result = {}
+    try:
+        session = get_session()
+        resp = session.get(f"https://finance.naver.com/item/main.naver?code={stock_code}", timeout=7)
+        resp.encoding = 'utf-8'
+        if resp.status_code != 200:
+            return result
+        soup = BeautifulSoup(resp.text, 'lxml')
+
+        aside = soup.find('div', class_='aside_invest_info')
+        if aside:
+            for em_tag in aside.find_all('em'):
+                txt = em_tag.get_text(strip=True)
+                parent_text = em_tag.parent.get_text(strip=True) if em_tag.parent else ''
+                if 'PER' in parent_text and 'PER' not in result:
+                    val = parse_numeric(txt)
+                    if pd.notna(val): result['PER'] = round(val, 2)
+                if 'PBR' in parent_text and 'PBR' not in result:
+                    val = parse_numeric(txt)
+                    if pd.notna(val): result['PBR'] = round(val, 2)
+
+        if 'PER' not in result or 'PBR' not in result:
+            for table in soup.find_all('table', class_='per_table'):
+                for row in table.find_all('tr'):
+                    cells = row.find_all(['th', 'td'])
+                    for i, cell in enumerate(cells):
+                        cell_text = cell.get_text(strip=True)
+                        if 'PER' in cell_text and 'PER' not in result and i + 1 < len(cells):
+                            val = parse_numeric(cells[i+1].get_text(strip=True))
+                            if pd.notna(val): result['PER'] = round(val, 2)
+                        if 'PBR' in cell_text and 'PBR' not in result and i + 1 < len(cells):
+                            val = parse_numeric(cells[i+1].get_text(strip=True))
+                            if pd.notna(val): result['PBR'] = round(val, 2)
+
+        if 'PER' not in result:
+            body_text = soup.get_text()
+            per_match = re.search(r'PER\s*[\(배\)]*\s*([\d,.]+)', body_text)
+            if per_match:
+                val = parse_numeric(per_match.group(1))
+                if pd.notna(val): result['PER'] = round(val, 2)
+        if 'PBR' not in result:
+            body_text = soup.get_text()
+            pbr_match = re.search(r'PBR\s*[\(배\)]*\s*([\d,.]+)', body_text)
+            if pbr_match:
+                val = parse_numeric(pbr_match.group(1))
+                if pd.notna(val): result['PBR'] = round(val, 2)
+
+        cop = soup.find('div', class_='section cop_analysis')
+        if cop:
+            table = cop.find('table')
+            if table:
+                for row in table.find_all('tr'):
+                    cells = row.find_all(['th', 'td'])
+                    if cells:
+                        label = cells[0].get_text(strip=True)
+                        if 'ROE' in label:
+                            for cell in reversed(cells[1:]):
+                                val = parse_numeric(cell.get_text(strip=True))
+                                if pd.notna(val):
+                                    result['ROE'] = round(val, 2)
+                                    break
+    except:
+        pass
+    return result
+
+
 def scrape_naver_consensus(stock_code, stock_name):
     result = {'종목코드': stock_code, '종목명': stock_name}
     try:
@@ -246,9 +322,103 @@ def scrape_naver_consensus(stock_code, stock_name):
             pd.notna(result.get(f'{m}_{y}')) for m in ['매출액', '영업이익']))
         result['데이터_가용성'] = f'{av}년치 존재'
         result['가용_연도수'] = av
+
+        # PER, PBR, ROE 크롤링
+        try:
+            indicators = scrape_naver_per_pbr_roe(stock_code)
+            result['PER'] = indicators.get('PER', np.nan)
+            result['PBR'] = indicators.get('PBR', np.nan)
+            result['ROE'] = indicators.get('ROE', np.nan)
+        except:
+            result['PER'] = np.nan
+            result['PBR'] = np.nan
+            result['ROE'] = np.nan
+
         return result
     except:
         return None
+
+
+# ============================================================
+# 누적 기록 저장
+# ============================================================
+def save_history(df, min_vol=1000000):
+    """크롤링 결과에서 거래량 100만 이상 종목을 날짜별로 누적 저장"""
+    today_str = now_kst().strftime('%Y-%m-%d')
+    history_file = os.path.join(HISTORY_DIR, "accumulation.json")
+
+    history = {}
+    if os.path.exists(history_file):
+        with open(history_file, 'r', encoding='utf-8') as f:
+            history = json.load(f)
+
+    vol_df = df[df['Recent_Volume'] >= min_vol].copy()
+    if vol_df.empty:
+        return
+
+    def calc_scores(row):
+        s = 0
+        rm = row.get('매출액_최대성장률', np.nan)
+        if pd.notna(rm): s += min(rm, 2000)
+        om = row.get('영업이익_최대성장률', np.nan)
+        if pd.notna(om): s += min(om, 2000)
+        con = sum(1 for y in [2025,2026,2027]
+                  if (pd.notna(row.get(f'매출액_성장률_{y}')) and row.get(f'매출액_성장률_{y}') > 30)
+                  or (pd.notna(row.get(f'영업이익_성장률_{y}')) and row.get(f'영업이익_성장률_{y}') > 30))
+        s += con * 50
+        return s
+
+    def calc_visibility(row):
+        rv25 = row.get('매출액_2025', np.nan)
+        rv26 = row.get('매출액_2026', np.nan)
+        rv27 = row.get('매출액_2027', np.nan)
+        rv24 = row.get('매출액_2024', np.nan)
+        pr = 4
+        if pd.notna(rv27) and pd.notna(rv25) and rv25 > 0:
+            pr = 1
+        elif pd.notna(rv26) and pd.notna(rv25) and rv25 > 0:
+            pr = 2
+        elif pd.notna(rv25) and pd.notna(rv24) and rv24 > 0:
+            pr = 3
+        return pr
+
+    categories = {
+        '미래가시성핵심성장': [],
+        '매출+영업이익환산점수': [],
+        '매출1년최대성장률': [],
+        '영업이익1년최대성장률': [],
+    }
+
+    for _, row in vol_df.iterrows():
+        name = row.get('종목명', '')
+        if not name:
+            continue
+
+        pr = calc_visibility(row)
+        score = calc_scores(row)
+        rev_max = row.get('매출액_최대성장률', np.nan)
+        op_max = row.get('영업이익_최대성장률', np.nan)
+
+        if pr <= 3:
+            categories['미래가시성핵심성장'].append(name)
+        if score > 0:
+            categories['매출+영업이익환산점수'].append(name)
+        if pd.notna(rev_max) and rev_max > 0:
+            categories['매출1년최대성장률'].append(name)
+        if pd.notna(op_max) and op_max > 0:
+            categories['영업이익1년최대성장률'].append(name)
+
+    for cat_name, stocks in categories.items():
+        if cat_name not in history:
+            history[cat_name] = {}
+        history[cat_name][today_str] = stocks
+
+    with open(history_file, 'w', encoding='utf-8') as f:
+        json.dump(history, f, ensure_ascii=False, indent=2)
+
+    print(f"  누적 기록 저장 완료: {today_str}")
+    for cat_name, stocks in categories.items():
+        print(f"    {cat_name}: {len(stocks)}개 종목")
 
 
 # ============================================================
@@ -258,7 +428,7 @@ def main():
     MARKETS = ['KOSPI', 'KOSDAQ']
     MAX_WORKERS = 50
 
-    print(f"[{datetime.datetime.now()}] ▶ 크롤링 시작")
+    print(f"[{now_kst()}] ▶ 크롤링 시작")
 
     # 1단계: 종목 리스트
     print("1단계: 종목 리스트 수집...")
@@ -314,7 +484,7 @@ def main():
     df.to_csv(CSV_FILE, index=False, encoding='utf-8-sig')
 
     meta = {
-        'timestamp': datetime.datetime.now().isoformat(),
+        'timestamp': now_kst().isoformat(),
         'markets': MARKETS,
         'total_analyzed': total,
         'data_count': len(results),
@@ -322,7 +492,13 @@ def main():
     with open(META_FILE, 'w', encoding='utf-8') as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
 
-    print(f"[{datetime.datetime.now()}] ✅ 완료! {len(results)}개 → {CSV_FILE}")
+    print(f"[{now_kst()}] ✅ 데이터 저장 완료! {len(results)}개 → {CSV_FILE}")
+
+    # 4단계: 누적 기록 저장
+    print("4단계: 누적 기록 저장...")
+    save_history(df)
+
+    print(f"[{now_kst()}] ✅ 전체 완료!")
 
 
 if __name__ == '__main__':
