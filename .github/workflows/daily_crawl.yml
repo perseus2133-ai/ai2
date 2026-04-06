@@ -12,10 +12,13 @@ on:
         required: false
         default: '수동 크롤링'
 
+permissions:
+  contents: write
+
 jobs:
   crawl:
     runs-on: ubuntu-latest
-    timeout-minutes: 30   # 최대 30분 (보통 5~10분 소요)
+    timeout-minutes: 60   # 업종 데이터 포함으로 60분으로 증가
 
     steps:
       - name: ⬇️ 코드 체크아웃

@@ -1132,8 +1132,12 @@ def main():
         df = apply_filters(all_df.copy(), rev_thresh, op_thresh, min_vol, markets, req_min_rev_500, req_op_profit, drop_huge_loss)
 
         # 업종 매핑 적용
-        sector_map = get_all_naver_sectors()
-        df['업종'] = df['종목코드'].map(sector_map).fillna('기타')
+        # CSV에 업종 컴럼이 이미 있으면 그대로 사용, 없으면 네이버에서 실시간 회수
+        if '업종' not in df.columns or df['업종'].isna().all():
+            sector_map = get_all_naver_sectors()
+            df['업종'] = df['종목코드'].map(sector_map).fillna('기타')
+        else:
+            df['업종'] = df['업종'].fillna('기타')
 
         # 업종평균 PER 매핑
         sector_per_map = get_sector_per_map()

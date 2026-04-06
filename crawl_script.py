@@ -65,6 +65,49 @@ def parse_numeric(text):
     except: return np.nan
 
 
+
+def get_naver_sector_map():
+    """네이버 금융 업종별 종목 코드 -> 업종명 매핑 딕셔너리를 반환한다."""
+    sector_map = {}
+    try:
+        session = get_session()
+        url = "https://finance.naver.com/sise/sise_group.naver?type=upjong"
+        res = session.get(url, timeout=10)
+        res.encoding = "euc-kr"
+        soup = BeautifulSoup(res.text, "lxml")
+        links = soup.select("table.type_1 td a")
+        print(f"  업종 수: {len(links)}개")
+
+        def fetch_sector(a_tag):
+            s_name = a_tag.text.strip()
+            link = "https://finance.naver.com" + a_tag["href"]
+            try:
+                sub_res = session.get(link, timeout=10)
+                sub_res.encoding = "euc-kr"
+                sub_soup = BeautifulSoup(sub_res.text, "lxml")
+                codes = []
+                for sub_a in sub_soup.select("table.type_5 td.name a"):
+                    href = sub_a.get("href", "")
+                    if "code=" in href:
+                        c = href.split("code=")[-1][:6]
+                        codes.append((c, s_name))
+                return codes
+            except:
+                return []
+
+        with ThreadPoolExecutor(max_workers=10) as ex:
+            futures = [ex.submit(fetch_sector, a) for a in links]
+            for f in as_completed(futures):
+                try:
+                    for c, s in f.result():
+                        sector_map[c] = s
+                except:
+                    pass
+    except Exception as e:
+        print(f"[WARN] 업종 매핑 실패: {e}")
+    return sector_map
+
+
 def get_stock_list_naver(market="0"):
     market_name = "KOSPI" if market == "0" else "KOSDAQ"
     all_stocks, page, last_page = [], 1, 1
@@ -443,6 +486,12 @@ def main():
     for p in ['스팩', 'SPAC', 'ETF', 'ETN', '리츠', 'REIT', '인버스', '레버리지', '선물', '채권']:
         stock_df = stock_df[~stock_df['종목명'].str.contains(p, na=False)]
     stock_df = stock_df.reset_index(drop=True)
+
+
+    # 1.5단계: 업종 매핑 수집
+    print("1.5단계: 업종 데이터 수집...")
+    sector_map = get_naver_sector_map()
+    print(f"  업종 매핑 {len(sector_map)}개 종목")
     print(f"  필터 후 총 {len(stock_df)}개")
 
     # 2단계: 컨센서스 크롤링
@@ -481,6 +530,8 @@ def main():
 
     # 3단계: CSV 저장
     df = pd.DataFrame(results)
+    # 업종 데이터 매핑 (인덱스 정수 접두어 제거 후 6자리)
+    df['업종'] = df['종목코드'].astype(str).str.zfill(6).map(sector_map).fillna('기타')
     df.to_csv(CSV_FILE, index=False, encoding='utf-8-sig')
 
     meta = {
