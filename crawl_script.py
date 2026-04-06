@@ -492,6 +492,10 @@ def main():
     print("1.5단계: 업종 데이터 수집...")
     sector_map = get_naver_sector_map()
     print(f"  업종 매핑 {len(sector_map)}개 종목")
+    # sector_map.json 저장 (앱에서 즉시 사용 가능)
+    sector_json_path = os.path.join(DATA_DIR, "sector_map.json")
+    with open(sector_json_path, "w", encoding="utf-8") as _f:
+        json.dump(sector_map, _f, ensure_ascii=False)
     print(f"  필터 후 총 {len(stock_df)}개")
 
     # 2단계: 컨센서스 크롤링

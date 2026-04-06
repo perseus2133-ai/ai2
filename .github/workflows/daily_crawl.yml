@@ -2,8 +2,8 @@ name: 📊 Daily Stock Crawl
 
 on:
   schedule:
-    # 매일 오전 6시 KST (= 21:00 UTC 전날)
-    - cron: '0 21 * * *'
+    # 매일 오전 5시 KST (= 20:00 UTC 전날)
+    - cron: '0 20 * * *'
   workflow_dispatch:
     # 수동 실행 버튼 (GitHub Actions 탭에서 직접 실행 가능)
     inputs:

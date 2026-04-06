@@ -449,6 +449,19 @@ def get_all_naver_sectors():
     except: pass
     return sector_map
 
+@st.cache_data(ttl=3600)
+def _load_sector_map():
+    """sector_map.json 우선 로드, 없으면 런타임 크롤링 폴백"""
+    json_path = os.path.join(DATA_DIR, 'sector_map.json')
+    if os.path.exists(json_path):
+        try:
+            with open(json_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            pass
+    return get_all_naver_sectors()
+
+
 @st.cache_data(ttl=86400)
 def get_sector_per_map():
     """업종별 평균 PER을 가져온다."""
@@ -1132,10 +1145,10 @@ def main():
         df = apply_filters(all_df.copy(), rev_thresh, op_thresh, min_vol, markets, req_min_rev_500, req_op_profit, drop_huge_loss)
 
         # 업종 매핑 적용
-        # CSV에 업종 컴럼이 이미 있으면 그대로 사용, 없으면 네이버에서 실시간 회수
+        # 업종 매핑: CSV 콜럼 우선, 없으면 sector_map.json, 구 파일도 없으면 런타임 크롤링
         if '업종' not in df.columns or df['업종'].isna().all():
-            sector_map = get_all_naver_sectors()
-            df['업종'] = df['종목코드'].map(sector_map).fillna('기타')
+            sector_map = _load_sector_map()
+            df['업종'] = df['종목코드'].astype(str).str.zfill(6).map(sector_map).fillna('기타')
         else:
             df['업종'] = df['업종'].fillna('기타')
 
