@@ -112,6 +112,20 @@ def save_history(df, min_vol=1000000):
     if vol_df.empty:
         return
 
+    # 재무 필터 (고정): 매출 500억↑, 영업이익 흑자, 매출 초과 적자 제외
+    def strict_financial_check(row):
+        for y in [2023, 2024, 2025, 2026, 2027]:
+            rv = row.get(f'매출액_{y}', np.nan)
+            ov = row.get(f'영업이익_{y}', np.nan)
+            if pd.notna(rv) and rv < 500: return False
+            if pd.notna(ov) and ov < 0: return False
+            if pd.notna(ov) and pd.notna(rv) and ov < 0 and abs(ov) > rv: return False
+        return True
+
+    vol_df = vol_df[vol_df.apply(strict_financial_check, axis=1)].copy()
+    if vol_df.empty:
+        return
+
     # apply_filters와 동일한 점수 계산을 위해 간단히 수행
     def calc_scores(row):
         s = 0
