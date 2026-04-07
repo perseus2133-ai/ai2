@@ -666,6 +666,34 @@ def scrape_naver_per_pbr_roe(stock_code):
     return result
 
 
+def get_avg_volume_20d(stock_code):
+    """네이버 일별 시세에서 최근 20거래일 평균 거래량을 반환한다."""
+    try:
+        session = get_session()
+        url = f'https://finance.naver.com/item/sise_day.naver?code={stock_code}&page=1'
+        resp = session.get(url, timeout=6)
+        resp.encoding = 'euc-kr'
+        soup = BeautifulSoup(resp.text, 'lxml')
+        volumes = []
+        table = soup.find('table', class_='type2')
+        if not table:
+            return np.nan
+        for row in table.find_all('tr'):
+            cells = row.find_all('td')
+            if len(cells) < 7:
+                continue
+            vol_text = cells[6].get_text(strip=True).replace(',', '')
+            if vol_text and vol_text.isdigit() and int(vol_text) > 0:
+                volumes.append(int(vol_text))
+                if len(volumes) >= 20:
+                    break
+        if len(volumes) >= 3:
+            return round(sum(volumes) / len(volumes))
+    except:
+        pass
+    return np.nan
+
+
 def scrape_naver_consensus(stock_code, stock_name):
     result = {'종목코드': stock_code, '종목명': stock_name}
     try:
@@ -770,6 +798,12 @@ def scrape_naver_consensus(stock_code, stock_name):
             result['PBR'] = np.nan
             result['ROE'] = np.nan
 
+        # 20일 평균 거래량 수집
+        try:
+            result['평균거래량_20d'] = get_avg_volume_20d(stock_code)
+        except:
+            result['평균거래량_20d'] = np.nan
+
         return result
     except Exception as e:
         return None
@@ -802,6 +836,13 @@ def crawl_all_data(progress_bar, status_text, markets, max_workers):
         if c:
             c['시장'] = rd['시장']; c['현재가'] = rd['현재가']
             c['시가총액'] = rd['시가총액']; c['Recent_Volume'] = rd['Recent_Volume']
+            # 거래량 폭증 배수 계산
+            avg_vol = c.get('평균거래량_20d', np.nan)
+            today_vol = rd['Recent_Volume']
+            if pd.notna(avg_vol) and avg_vol > 0 and today_vol > 0:
+                c['거래량배수'] = round(today_vol / avg_vol, 1)
+            else:
+                c['거래량배수'] = np.nan
             return ('ok', c)
         return ('no', None)
 
@@ -892,6 +933,25 @@ def apply_filters(df, rev_thresh, op_thresh, min_vol, markets, req_min_rev_500=T
     df['미래가시성_성장률'] = metric_pcts
     df['가시성기준_정렬점수'] = priority_scores
 
+    # ── Forward PER & PEG (벡터화) ──────────────────────────────
+    # Forward PER = Trailing PER / (1 + 26E 영업이익 성장률)
+    # 26E 없으면 25E로 fallback
+    fwd_g = df['영업이익_성장률_2026'].where(
+        df['영업이익_성장률_2026'].notna(), df['영업이익_성장률_2025']
+    )
+    valid_fwd = df['PER'].notna() & (df['PER'] > 0) & fwd_g.notna() & (fwd_g > 0)
+    df['Forward_PER'] = np.where(
+        valid_fwd,
+        (df['PER'] / (1 + fwd_g / 100)).round(1),
+        np.nan
+    )
+    # PEG = Forward PER ÷ 성장률(%) — 1 이하면 저평가 시그널
+    df['PEG'] = np.where(
+        valid_fwd & df['Forward_PER'].notna(),
+        (df['Forward_PER'] / fwd_g).round(2),
+        np.nan
+    )
+
     return df.sort_values('가시성기준_정렬점수', ascending=False).reset_index(drop=True)
 
 
@@ -959,13 +1019,14 @@ def render_stock_card(row, rank):
     pbr_val = row.get('PBR', np.nan)
     roe_val = row.get('ROE', np.nan)
     sector_per = row.get('업종평균PER', np.nan)
+    fwd_per_val = row.get('Forward_PER', np.nan)
+    peg_val = row.get('PEG', np.nan)
+    vol_ratio = row.get('거래량배수', np.nan)
 
-    # 네이버 증권 링크: 종목코드 6자리 확인 후 올바른 URL 생성
     code_str = str(code).zfill(6)
     nurl = f"https://finance.naver.com/item/main.naver?code={code_str}"
 
     badge = f'<span class="badge-kospi">KOSPI</span>' if market=='KOSPI' else f'<span class="badge-kosdaq">KOSDAQ</span>'
-    sc = "#2EAA7B" if score>=1000 else "#4A90E2" if score>=500 else "#8B949E"
     si2 = "⭐" if score>=500 else "▪"
 
     def fv(v):
@@ -984,25 +1045,52 @@ def render_stock_card(row, rank):
     c = 'flex:1;text-align:right;padding:2px 6px;'
     ce = 'flex:1;text-align:right;padding:2px 6px;font-weight:700;'
 
-    # PER/PBR/ROE 표시
+    # ── 거래량 폭증 배수 표시 ─────────────────────────────────
+    if pd.notna(vol_ratio):
+        if vol_ratio >= 5:
+            vol_ratio_html = f'<span style="color:#E53E3E;font-weight:800;font-family:\'JetBrains Mono\',monospace;">🔥 {vol_ratio:.1f}x</span>'
+        elif vol_ratio >= 2:
+            vol_ratio_html = f'<span style="color:#D97706;font-weight:700;font-family:\'JetBrains Mono\',monospace;">▲ {vol_ratio:.1f}x</span>'
+        else:
+            vol_ratio_html = f'<span style="color:#6C757D;font-family:\'JetBrains Mono\',monospace;">{vol_ratio:.1f}x</span>'
+    else:
+        vol_ratio_html = '<span style="color:#CED4DA;">-</span>'
+
+    # ── PER/Forward PER/PEG/PBR/ROE 표시 ──────────────────────
     per_str = f'{per_val:.1f}' if pd.notna(per_val) else '-'
     pbr_str = f'{pbr_val:.2f}' if pd.notna(pbr_val) else '-'
     roe_str = f'{roe_val:.1f}%' if pd.notna(roe_val) else '-'
     sec_per_str = f'{sector_per:.1f}' if pd.notna(sector_per) else '-'
+    fwd_per_str = f'{fwd_per_val:.1f}' if pd.notna(fwd_per_val) else '-'
 
-    # PER 비교 색상
+    # PEG 색상: 1 이하=저평가(녹), 1~2=적정(기본), 2 초과=고평가(빨)
+    if pd.notna(peg_val):
+        if peg_val <= 1.0:
+            peg_color = '#2EAA7B'; peg_str = f'★ {peg_val:.2f}'
+        elif peg_val <= 2.0:
+            peg_color = '#D97706'; peg_str = f'{peg_val:.2f}'
+        else:
+            peg_color = '#FF6B6B'; peg_str = f'{peg_val:.2f}'
+    else:
+        peg_color = '#CED4DA'; peg_str = '-'
+
+    # Forward PER 색상 (Trailing PER 대비 낮으면 녹색)
+    fwd_per_color = '#6C757D'
+    if pd.notna(fwd_per_val) and pd.notna(per_val):
+        fwd_per_color = '#2EAA7B' if fwd_per_val < per_val else '#6C757D'
+
+    # Trailing PER 색상 (업종평균 대비)
     per_color = '#6C757D'
     if pd.notna(per_val) and pd.notna(sector_per):
-        if per_val < sector_per:
-            per_color = '#2EAA7B'  # 저평가 (녹색)
-        else:
-            per_color = '#FF6B6B'  # 고평가 (빨간)
+        per_color = '#2EAA7B' if per_val < sector_per else '#FF6B6B'
 
-    indicators_html = f"""<div style="display:flex;gap:16px;margin-top:4px;flex-wrap:wrap;">
-        <div><span style="color:#6C757D;font-size:0.72rem;">PER</span><br><span style="color:{per_color};font-family:'JetBrains Mono',monospace;font-weight:700;font-size:0.95rem;">{per_str}</span></div>
-        <div><span style="color:#6C757D;font-size:0.72rem;">업종PER</span><br><span style="color:#6C757D;font-family:'JetBrains Mono',monospace;font-size:0.9rem;">{sec_per_str}</span></div>
-        <div><span style="color:#6C757D;font-size:0.72rem;">PBR</span><br><span style="color:#6C757D;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:0.95rem;">{pbr_str}</span></div>
-        <div><span style="color:#6C757D;font-size:0.72rem;">ROE</span><br><span style="color:#1D3557;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:0.95rem;">{roe_str}</span></div>
+    indicators_html = f"""<div style="display:flex;gap:14px;margin-top:6px;flex-wrap:wrap;align-items:flex-start;">
+        <div><span style="color:#6C757D;font-size:0.72rem;">PER(TTM)</span><br><span style="color:{per_color};font-family:'JetBrains Mono',monospace;font-weight:700;font-size:0.92rem;">{per_str}</span></div>
+        <div><span style="color:#6C757D;font-size:0.72rem;">Fwd PER</span><br><span style="color:{fwd_per_color};font-family:'JetBrains Mono',monospace;font-weight:700;font-size:0.92rem;">{fwd_per_str}</span></div>
+        <div title="PEG = Forward PER ÷ 성장률(%) / 1이하=저평가"><span style="color:#6C757D;font-size:0.72rem;">PEG</span><br><span style="color:{peg_color};font-family:'JetBrains Mono',monospace;font-weight:700;font-size:0.92rem;">{peg_str}</span></div>
+        <div><span style="color:#6C757D;font-size:0.72rem;">업종PER</span><br><span style="color:#6C757D;font-family:'JetBrains Mono',monospace;font-size:0.88rem;">{sec_per_str}</span></div>
+        <div><span style="color:#6C757D;font-size:0.72rem;">PBR</span><br><span style="color:#6C757D;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:0.92rem;">{pbr_str}</span></div>
+        <div><span style="color:#6C757D;font-size:0.72rem;">ROE</span><br><span style="color:#1D3557;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:0.92rem;">{roe_str}</span></div>
     </div>"""
 
     evidence_html = f'<div style="margin-top:12px;padding:10px;background-color:#F8F9FA;border-radius:4px;border:1px solid #E9ECEF;"><div style="color:#6C757D;font-size:0.7rem;font-weight:600;margin-bottom:6px;">데이터 소스 (단위: 억원)</div><div class="evidence-scroll"><div style="{hdr}"><div style="{lb}"></div><div style="{c}">\'23</div><div style="{c}">\'24</div><div style="{c}color:#1D3557;">\'25E</div><div style="{c}color:#1D3557;">\'26E</div><div style="{c}color:#1D3557;">\'27E</div></div><div style="{rw}"><div style="{lb}">매출액</div><div style="{c}color:{fv_color(rv23)};">{fv(rv23)}</div><div style="{c}color:{fv_color(rv24)};">{fv(rv24)}</div><div style="{ce}color:{fv_color(rv25)};">{fv(rv25)}</div><div style="{ce}color:{fv_color(rv26)};">{fv(rv26)}</div><div style="{ce}color:{fv_color(rv27)};">{fv(rv27)}</div></div><div style="{rw}"><div style="{lb}">영업이익</div><div style="{c}color:{fv_color(ov23)};">{fv(ov23)}</div><div style="{c}color:{fv_color(ov24)};">{fv(ov24)}</div><div style="{ce}color:{fv_color(ov25)};">{fv(ov25)}</div><div style="{ce}color:{fv_color(ov26)};">{fv(ov26)}</div><div style="{ce}color:{fv_color(ov27)};">{fv(ov27)}</div></div></div></div>'
@@ -1016,9 +1104,13 @@ def render_stock_card(row, rank):
                     <span class="stock-name">{name}</span> {badge}
                     <span class="stock-code">{code_str}</span>
                 </div>
-                <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:4px;">
+                <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:4px;align-items:flex-end;">
                     <div><span style="color:#6C757D;font-size:0.75rem;">현재가</span><br><span style="color:#212529;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:1.05rem;">{format_price(price)}</span></div>
-                    <div><span style="color:#6C757D;font-size:0.75rem;">거래량</span><br><span style="color:#212529;font-family:'JetBrains Mono',monospace;font-size:0.95rem;">{format_volume(volume)}</span></div>
+                    <div>
+                        <span style="color:#6C757D;font-size:0.75rem;">거래량</span><br>
+                        <span style="color:#212529;font-family:'JetBrains Mono',monospace;font-size:0.95rem;">{format_volume(volume)}</span>
+                        <span style="font-size:0.82rem;margin-left:4px;">{vol_ratio_html}</span>
+                    </div>
                     <div><span style="color:#6C757D;font-size:0.75rem;">시가총액</span><br><span style="color:#212529;font-family:'JetBrains Mono',monospace;font-size:0.95rem;">{format_number(mcap)}</span></div>
                     <div><span style="color:#6C757D;font-size:0.75rem;">데이터</span><br><span style="color:#1D3557;font-family:'JetBrains Mono',monospace;font-size:0.9rem;">{avail}</span></div>
                 </div>
@@ -1190,14 +1282,19 @@ def main():
                     "📊 매출+영업이익 합산점수": "종합성장점수",
                     "💰 매출 1년최대성장률 (단기)": "매출액_최대성장률",
                     "📈 영업이익 1년최대성장률 (단기)": "영업이익_최대성장률",
+                    "🔥 거래량배수 (20일평균 대비)": "거래량배수",
                     "🔥 거래량순": "Recent_Volume",
+                    "💹 Forward PER (낮을수록)": "Forward_PER",
+                    "⭐ PEG (낮을수록)": "PEG",
                     "🏢 시가총액순": "시가총액",
                     "💵 현재가순": "현재가",
                 }
                 sort_label = st.selectbox("정렬 기준", list(sort_options.keys()), index=0, label_visibility="collapsed")
                 sort_col = sort_options[sort_label]
             with scol2:
-                sort_order = st.selectbox("순서", ["내림차순", "오름차순"], index=0, label_visibility="collapsed")
+                # Forward PER, PEG는 낮을수록 좋으므로 기본 오름차순
+                asc_default = sort_col in ('Forward_PER', 'PEG')
+                sort_order = st.selectbox("순서", ["오름차순", "내림차순"] if asc_default else ["내림차순", "오름차순"], index=0, label_visibility="collapsed")
             df_s = df.sort_values(sort_col, ascending=(sort_order=="오름차순"), na_position='last').reset_index(drop=True)
 
             page_size = 20
@@ -1276,8 +1373,8 @@ def main():
                 else:
                     st.button("📥 누적기록 없음", disabled=True, use_container_width=True)
 
-            show_cols = ['종목명','종목코드','시장','현재가','Recent_Volume','시가총액','업종',
-                'PER','PBR','ROE','업종평균PER','데이터_가용성',
+            show_cols = ['종목명','종목코드','시장','현재가','Recent_Volume','거래량배수','시가총액','업종',
+                'PER','Forward_PER','PEG','PBR','ROE','업종평균PER','데이터_가용성',
                 '매출액_성장률_2025','매출액_성장률_2026','매출액_성장률_2027','매출액_최대성장률',
                 '영업이익_성장률_2025','영업이익_성장률_2026','영업이익_성장률_2027','영업이익_최대성장률','종합성장점수']
             ac = [c for c in show_cols if c in df.columns]
@@ -1286,8 +1383,11 @@ def main():
                 "종목코드": st.column_config.TextColumn("코드", width="small"),
                 "현재가": st.column_config.NumberColumn("현재가", format="%d원"),
                 "Recent_Volume": st.column_config.NumberColumn("거래량", format="%d"),
+                "거래량배수": st.column_config.NumberColumn("거래량배수(20d)", format="%.1fx"),
                 "시가총액": st.column_config.NumberColumn("시총(억)", format="%d"),
-                "PER": st.column_config.NumberColumn("PER", format="%.1f"),
+                "PER": st.column_config.NumberColumn("PER(TTM)", format="%.1f"),
+                "Forward_PER": st.column_config.NumberColumn("Fwd PER", format="%.1f"),
+                "PEG": st.column_config.NumberColumn("PEG", format="%.2f"),
                 "PBR": st.column_config.NumberColumn("PBR", format="%.2f"),
                 "ROE": st.column_config.NumberColumn("ROE", format="%.1f%%"),
                 "업종평균PER": st.column_config.NumberColumn("업종PER", format="%.1f"),

@@ -273,6 +273,34 @@ def scrape_naver_per_pbr_roe(stock_code):
     return result
 
 
+def get_avg_volume_20d(stock_code):
+    """네이버 일별 시세에서 최근 20거래일 평균 거래량을 반환한다."""
+    try:
+        session = get_session()
+        url = f'https://finance.naver.com/item/sise_day.naver?code={stock_code}&page=1'
+        resp = session.get(url, timeout=6)
+        resp.encoding = 'euc-kr'
+        soup = BeautifulSoup(resp.text, 'lxml')
+        volumes = []
+        table = soup.find('table', class_='type2')
+        if not table:
+            return np.nan
+        for row in table.find_all('tr'):
+            cells = row.find_all('td')
+            if len(cells) < 7:
+                continue
+            vol_text = cells[6].get_text(strip=True).replace(',', '')
+            if vol_text and vol_text.isdigit() and int(vol_text) > 0:
+                volumes.append(int(vol_text))
+                if len(volumes) >= 20:
+                    break
+        if len(volumes) >= 3:
+            return round(sum(volumes) / len(volumes))
+    except:
+        pass
+    return np.nan
+
+
 def scrape_naver_consensus(stock_code, stock_name):
     result = {'종목코드': stock_code, '종목명': stock_name}
     try:
@@ -376,6 +404,12 @@ def scrape_naver_consensus(stock_code, stock_name):
             result['PER'] = np.nan
             result['PBR'] = np.nan
             result['ROE'] = np.nan
+
+        # 20일 평균 거래량 수집
+        try:
+            result['평균거래량_20d'] = get_avg_volume_20d(stock_code)
+        except:
+            result['평균거래량_20d'] = np.nan
 
         return result
     except:
@@ -510,6 +544,13 @@ def main():
             c['현재가'] = rd['현재가']
             c['시가총액'] = rd['시가총액']
             c['Recent_Volume'] = rd['Recent_Volume']
+            # 거래량 폭증 배수 계산
+            avg_vol = c.get('평균거래량_20d', np.nan)
+            today_vol = rd['Recent_Volume']
+            if pd.notna(avg_vol) and avg_vol > 0 and today_vol > 0:
+                c['거래량배수'] = round(today_vol / avg_vol, 1)
+            else:
+                c['거래량배수'] = np.nan
             return ('ok', c)
         return ('no', None)
 
