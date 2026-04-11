@@ -1202,7 +1202,7 @@ def main():
         st.markdown("### 📊 거래량 필터")
         vol_opts = {"제한 없음": 0, "1만 이상": 10000, "5만 이상": 50000, "10만 이상": 100000,
                     "50만 이상": 500000, "100만 이상": 1000000}
-        vol_sel = st.selectbox("최소 거래량", list(vol_opts.keys()), index=2)
+        vol_sel = st.selectbox("최소 거래량", list(vol_opts.keys()), index=5)
         min_vol = vol_opts[vol_sel]
 
         st.markdown("### 🛡️ 엄격한 재무 필터")
