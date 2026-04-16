@@ -361,7 +361,7 @@ def scrape_naver_consensus(stock_code, stock_name):
             fg = scrape_fnguide_supplement(stock_code, stock_name)
             for mn in ['매출액', '영업이익']:
                 if mn in fg:
-                    for yr in [2025, 2026, 2027]:
+                    for yr in [2025, 2026, 2027, 2028]:
                         if (yr not in dm.get(mn, {}) or pd.isna(dm.get(mn, {}).get(yr))) \
                                 and yr in fg[mn] and pd.notna(fg[mn][yr]):
                             if mn not in dm: dm[mn] = {}
@@ -371,7 +371,7 @@ def scrape_naver_consensus(stock_code, stock_name):
 
         if not dm: return None
 
-        ty = [2025, 2026, 2027]; by = [2024, 2025, 2026]
+        ty = [2025, 2026, 2027, 2028]; by = [2024, 2025, 2026, 2027]
         for m in ['매출액', '영업이익']:
             if m not in dm: continue
             for y in [2023, 2024] + ty:
@@ -435,7 +435,7 @@ def save_history(df, min_vol=1000000):
 
     # 재무 필터 (고정): 매출 500억↑, 영업이익 흑자, 매출 초과 적자 제외
     def strict_financial_check(row):
-        for y in [2023, 2024, 2025, 2026, 2027]:
+        for y in [2023, 2024, 2025, 2026, 2027, 2028]:
             rv = row.get(f'매출액_{y}', np.nan)
             ov = row.get(f'영업이익_{y}', np.nan)
             if pd.notna(rv) and rv < 500: return False
@@ -453,24 +453,27 @@ def save_history(df, min_vol=1000000):
         if pd.notna(rm): s += min(rm, 2000)
         om = row.get('영업이익_최대성장률', np.nan)
         if pd.notna(om): s += min(om, 2000)
-        con = sum(1 for y in [2025,2026,2027]
+        con = sum(1 for y in [2025,2026,2027,2028]
                   if (pd.notna(row.get(f'매출액_성장률_{y}')) and row.get(f'매출액_성장률_{y}') > 30)
                   or (pd.notna(row.get(f'영업이익_성장률_{y}')) and row.get(f'영업이익_성장률_{y}') > 30))
         s += con * 50
         return s
 
     def calc_visibility(row):
+        rv24 = row.get('매출액_2024', np.nan)
         rv25 = row.get('매출액_2025', np.nan)
         rv26 = row.get('매출액_2026', np.nan)
         rv27 = row.get('매출액_2027', np.nan)
-        rv24 = row.get('매출액_2024', np.nan)
-        pr = 4
-        if pd.notna(rv27) and pd.notna(rv25) and rv25 > 0:
+        rv28 = row.get('매출액_2028', np.nan)
+        pr = 5
+        if pd.notna(rv28) and pd.notna(rv25) and rv25 > 0:
             pr = 1
-        elif pd.notna(rv26) and pd.notna(rv25) and rv25 > 0:
+        elif pd.notna(rv27) and pd.notna(rv25) and rv25 > 0:
             pr = 2
-        elif pd.notna(rv25) and pd.notna(rv24) and rv24 > 0:
+        elif pd.notna(rv26) and pd.notna(rv25) and rv25 > 0:
             pr = 3
+        elif pd.notna(rv25) and pd.notna(rv24) and rv24 > 0:
+            pr = 4
         return pr
 
     categories = {
@@ -490,7 +493,7 @@ def save_history(df, min_vol=1000000):
         rev_max = row.get('매출액_최대성장률', np.nan)
         op_max = row.get('영업이익_최대성장률', np.nan)
 
-        if pr <= 3:
+        if pr <= 4:
             categories['미래가시성핵심성장'].append(name)
         if score > 0:
             categories['매출+영업이익환산점수'].append(name)

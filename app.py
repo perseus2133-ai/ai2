@@ -114,7 +114,7 @@ def save_history(df, min_vol=1000000):
 
     # 재무 필터 (고정): 매출 500억↑, 영업이익 흑자, 매출 초과 적자 제외
     def strict_financial_check(row):
-        for y in [2023, 2024, 2025, 2026, 2027]:
+        for y in [2023, 2024, 2025, 2026, 2027, 2028]:
             rv = row.get(f'매출액_{y}', np.nan)
             ov = row.get(f'영업이익_{y}', np.nan)
             if pd.notna(rv) and rv < 500: return False
@@ -133,25 +133,28 @@ def save_history(df, min_vol=1000000):
         if pd.notna(rm): s += min(rm, 2000)
         om = row.get('영업이익_최대성장률', np.nan)
         if pd.notna(om): s += min(om, 2000)
-        con = sum(1 for y in [2025,2026,2027]
+        con = sum(1 for y in [2025,2026,2027,2028]
                   if (pd.notna(row.get(f'매출액_성장률_{y}')) and row.get(f'매출액_성장률_{y}') > 30)
                   or (pd.notna(row.get(f'영업이익_성장률_{y}')) and row.get(f'영업이익_성장률_{y}') > 30))
         s += con * 50
         return s
 
     def calc_visibility(row):
+        rv24 = row.get('매출액_2024', np.nan)
         rv25 = row.get('매출액_2025', np.nan)
         rv26 = row.get('매출액_2026', np.nan)
         rv27 = row.get('매출액_2027', np.nan)
-        rv24 = row.get('매출액_2024', np.nan)
-        pr = 4
+        rv28 = row.get('매출액_2028', np.nan)
+        pr = 5
         mt = 0
-        if pd.notna(rv27) and pd.notna(rv25) and rv25 > 0:
-            pr = 1; mt = ((rv27 / rv25) ** (1/2) - 1) * 100
+        if pd.notna(rv28) and pd.notna(rv25) and rv25 > 0:
+            pr = 1; mt = ((rv28 / rv25) ** (1/3) - 1) * 100
+        elif pd.notna(rv27) and pd.notna(rv25) and rv25 > 0:
+            pr = 2; mt = ((rv27 / rv25) ** (1/2) - 1) * 100
         elif pd.notna(rv26) and pd.notna(rv25) and rv25 > 0:
-            pr = 2; mt = ((rv26 / rv25) - 1) * 100
+            pr = 3; mt = ((rv26 / rv25) - 1) * 100
         elif pd.notna(rv25) and pd.notna(rv24) and rv24 > 0:
-            pr = 3; mt = ((rv25 / rv24) - 1) * 100
+            pr = 4; mt = ((rv25 / rv24) - 1) * 100
         return pr, mt
 
     # 4개 카테고리별 종목 추출
@@ -172,8 +175,8 @@ def save_history(df, min_vol=1000000):
         rev_max = row.get('매출액_최대성장률', np.nan)
         op_max = row.get('영업이익_최대성장률', np.nan)
 
-        # 미래가시성핵심성장: P1~P3 등급 (27E or 26E or 25E 데이터 있는 종목)
-        if pr <= 3:
+        # 미래가시성핵심성장: P1~P4 등급 (28E or 27E or 26E or 25E 데이터 있는 종목)
+        if pr <= 4:
             categories['미래가시성핵심성장'].append(name)
 
         # 매출+영업이익환산점수: 점수 > 0
@@ -548,7 +551,7 @@ def parse_numeric(text):
     except: return np.nan
 
 def scrape_fnguide_supplement(stock_code, stock_name=''):
-    """FnGuide에서 2026E, 2027E 컨센서스 데이터를 보조로 가져온다."""
+    """FnGuide에서 2026E, 2027E, 2028E 컨센서스 데이터를 보조로 가져온다."""
     try:
         session = get_session()
         url = f'https://comp.fnguide.com/SVO2/ASP/SVD_Main.asp?pGB=1&gicode=A{stock_code}'
@@ -766,12 +769,12 @@ def scrape_naver_consensus(stock_code, stock_name):
                     best_data = temp_data
             dm[mn] = best_data
 
-        # FnGuide에서 2026E, 2027E 보충 데이터 가져오기
+        # FnGuide에서 2026E, 2027E, 2028E 보충 데이터 가져오기
         try:
             fg = scrape_fnguide_supplement(stock_code, stock_name)
             for mn in ['매출액', '영업이익']:
                 if mn in fg:
-                    for yr in [2025, 2026, 2027]:
+                    for yr in [2025, 2026, 2027, 2028]:
                         if (yr not in dm.get(mn, {}) or pd.isna(dm.get(mn, {}).get(yr))) and yr in fg[mn] and pd.notna(fg[mn][yr]):
                             if mn not in dm: dm[mn] = {}
                             dm[mn][yr] = fg[mn][yr]
@@ -780,7 +783,7 @@ def scrape_naver_consensus(stock_code, stock_name):
 
         if not dm: return None
 
-        ty = [2025, 2026, 2027]; by = [2024, 2025, 2026]
+        ty = [2025, 2026, 2027, 2028]; by = [2024, 2025, 2026, 2027]
         for m in ['매출액', '영업이익']:
             if m not in dm: continue
             for y in [2023, 2024] + ty: result[f'{m}_{y}'] = dm[m].get(y, np.nan)
@@ -896,7 +899,7 @@ def apply_filters(df, rev_thresh, op_thresh, min_vol, markets, req_min_rev_500=T
     if min_vol > 0: df = df[df['Recent_Volume'] >= min_vol]
 
     def strict_financial_check(row):
-        yrs = [2023, 2024, 2025, 2026, 2027]
+        yrs = [2023, 2024, 2025, 2026, 2027, 2028]
         for y in yrs:
             rv = row.get(f'매출액_{y}', np.nan)
             ov = row.get(f'영업이익_{y}', np.nan)
@@ -907,8 +910,8 @@ def apply_filters(df, rev_thresh, op_thresh, min_vol, markets, req_min_rev_500=T
 
     df = df[df.apply(strict_financial_check, axis=1)].copy()
     def meets(row):
-        rv = [row.get(f'매출액_성장률_{y}', np.nan) for y in [2025,2026,2027]]
-        ov = [row.get(f'영업이익_성장률_{y}', np.nan) for y in [2025,2026,2027]]
+        rv = [row.get(f'매출액_성장률_{y}', np.nan) for y in [2025,2026,2027,2028]]
+        ov = [row.get(f'영업이익_성장률_{y}', np.nan) for y in [2025,2026,2027,2028]]
         rv = [x for x in rv if pd.notna(x)]; ov = [x for x in ov if pd.notna(x)]
         return (any(x >= rev_thresh for x in rv)) or (any(x >= op_thresh for x in ov))
     df = df[df.apply(meets, axis=1)].copy()
@@ -919,7 +922,7 @@ def apply_filters(df, rev_thresh, op_thresh, min_vol, markets, req_min_rev_500=T
         if pd.notna(rm): s += min(rm, 2000)
         om = row.get('영업이익_최대성장률', np.nan)
         if pd.notna(om): s += min(om, 2000)
-        con = sum(1 for y in [2025,2026,2027]
+        con = sum(1 for y in [2025,2026,2027,2028]
                   if (pd.notna(row.get(f'매출액_성장률_{y}')) and row.get(f'매출액_성장률_{y}') > 30)
                   or (pd.notna(row.get(f'영업이익_성장률_{y}')) and row.get(f'영업이익_성장률_{y}') > 30))
         s += con * 50; scores.append(round(s, 2))
@@ -928,19 +931,22 @@ def apply_filters(df, rev_thresh, op_thresh, min_vol, markets, req_min_rev_500=T
         rv25 = row.get('매출액_2025', np.nan)
         rv26 = row.get('매출액_2026', np.nan)
         rv27 = row.get('매출액_2027', np.nan)
+        rv28 = row.get('매출액_2028', np.nan)
 
-        pr = 4
+        pr = 5
         mt = 0
-        if pd.notna(rv27) and pd.notna(rv25) and rv25 > 0:
-            pr = 1; mt = ((rv27 / rv25) ** (1/2) - 1) * 100
+        if pd.notna(rv28) and pd.notna(rv25) and rv25 > 0:
+            pr = 1; mt = ((rv28 / rv25) ** (1/3) - 1) * 100
+        elif pd.notna(rv27) and pd.notna(rv25) and rv25 > 0:
+            pr = 2; mt = ((rv27 / rv25) ** (1/2) - 1) * 100
         elif pd.notna(rv26) and pd.notna(rv25) and rv25 > 0:
-            pr = 2; mt = ((rv26 / rv25) - 1) * 100
+            pr = 3; mt = ((rv26 / rv25) - 1) * 100
         elif pd.notna(rv25) and pd.notna(rv24) and rv24 > 0:
-            pr = 3; mt = ((rv25 / rv24) - 1) * 100
+            pr = 4; mt = ((rv25 / rv24) - 1) * 100
 
         priority_ranks.append(pr)
         metric_pcts.append(mt)
-        priority_scores.append((4 - pr) * 100_000_000 + mt)
+        priority_scores.append((5 - pr) * 100_000_000 + mt)
 
     df['종합성장점수'] = scores
     df['미래가시성_순위'] = priority_ranks
@@ -1026,8 +1032,8 @@ def render_stock_card(row, rank):
     code = row.get('종목코드',''); name = row.get('종목명',''); market = row.get('시장','')
     price = row.get('현재가',0); volume = row.get('Recent_Volume',0)
     mcap = row.get('시가총액',0); score = row.get('종합성장점수',0); avail = row.get('데이터_가용성','-')
-    rg25,rg26,rg27 = row.get('매출액_성장률_2025',np.nan),row.get('매출액_성장률_2026',np.nan),row.get('매출액_성장률_2027',np.nan)
-    og25,og26,og27 = row.get('영업이익_성장률_2025',np.nan),row.get('영업이익_성장률_2026',np.nan),row.get('영업이익_성장률_2027',np.nan)
+    rg25,rg26,rg27,rg28 = row.get('매출액_성장률_2025',np.nan),row.get('매출액_성장률_2026',np.nan),row.get('매출액_성장률_2027',np.nan),row.get('매출액_성장률_2028',np.nan)
+    og25,og26,og27,og28 = row.get('영업이익_성장률_2025',np.nan),row.get('영업이익_성장률_2026',np.nan),row.get('영업이익_성장률_2027',np.nan),row.get('영업이익_성장률_2028',np.nan)
 
     per_val = row.get('PER', np.nan)
     pbr_val = row.get('PBR', np.nan)
@@ -1050,8 +1056,8 @@ def render_stock_card(row, rank):
         if pd.isna(v): return '#CED4DA'
         return '#FF6B6B' if v > 0 else '#4A90E2'
 
-    rv23,rv24,rv25,rv26,rv27 = row.get('매출액_2023',np.nan),row.get('매출액_2024',np.nan),row.get('매출액_2025',np.nan),row.get('매출액_2026',np.nan),row.get('매출액_2027',np.nan)
-    ov23,ov24,ov25,ov26,ov27 = row.get('영업이익_2023',np.nan),row.get('영업이익_2024',np.nan),row.get('영업이익_2025',np.nan),row.get('영업이익_2026',np.nan),row.get('영업이익_2027',np.nan)
+    rv23,rv24,rv25,rv26,rv27,rv28 = row.get('매출액_2023',np.nan),row.get('매출액_2024',np.nan),row.get('매출액_2025',np.nan),row.get('매출액_2026',np.nan),row.get('매출액_2027',np.nan),row.get('매출액_2028',np.nan)
+    ov23,ov24,ov25,ov26,ov27,ov28 = row.get('영업이익_2023',np.nan),row.get('영업이익_2024',np.nan),row.get('영업이익_2025',np.nan),row.get('영업이익_2026',np.nan),row.get('영업이익_2027',np.nan),row.get('영업이익_2028',np.nan)
 
     hdr = 'display:flex;gap:0;font-size:0.72rem;color:#6C757D;margin-bottom:4px;border-bottom:1px solid #E9ECEF;padding-bottom:2px;'
     rw = 'display:flex;gap:0;font-size:0.8rem;margin-bottom:2px;font-family:\\\'JetBrains Mono\\\', monospace;'
@@ -1107,7 +1113,7 @@ def render_stock_card(row, rank):
         <div><span style="color:#6C757D;font-size:0.72rem;">ROE</span><br><span style="color:#1D3557;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:0.92rem;">{roe_str}</span></div>
     </div>"""
 
-    evidence_html = f'<div style="margin-top:12px;padding:10px;background-color:#F8F9FA;border-radius:4px;border:1px solid #E9ECEF;"><div style="color:#6C757D;font-size:0.7rem;font-weight:600;margin-bottom:6px;">데이터 소스 (단위: 억원)</div><div class="evidence-scroll"><div style="{hdr}"><div style="{lb}"></div><div style="{c}">\'23</div><div style="{c}">\'24</div><div style="{c}color:#1D3557;">\'25E</div><div style="{c}color:#1D3557;">\'26E</div><div style="{c}color:#1D3557;">\'27E</div></div><div style="{rw}"><div style="{lb}">매출액</div><div style="{c}color:{fv_color(rv23)};">{fv(rv23)}</div><div style="{c}color:{fv_color(rv24)};">{fv(rv24)}</div><div style="{ce}color:{fv_color(rv25)};">{fv(rv25)}</div><div style="{ce}color:{fv_color(rv26)};">{fv(rv26)}</div><div style="{ce}color:{fv_color(rv27)};">{fv(rv27)}</div></div><div style="{rw}"><div style="{lb}">영업이익</div><div style="{c}color:{fv_color(ov23)};">{fv(ov23)}</div><div style="{c}color:{fv_color(ov24)};">{fv(ov24)}</div><div style="{ce}color:{fv_color(ov25)};">{fv(ov25)}</div><div style="{ce}color:{fv_color(ov26)};">{fv(ov26)}</div><div style="{ce}color:{fv_color(ov27)};">{fv(ov27)}</div></div></div></div>'
+    evidence_html = f'<div style="margin-top:12px;padding:10px;background-color:#F8F9FA;border-radius:4px;border:1px solid #E9ECEF;"><div style="color:#6C757D;font-size:0.7rem;font-weight:600;margin-bottom:6px;">데이터 소스 (단위: 억원)</div><div class="evidence-scroll"><div style="{hdr}"><div style="{lb}"></div><div style="{c}">\'23</div><div style="{c}">\'24</div><div style="{c}color:#1D3557;">\'25E</div><div style="{c}color:#1D3557;">\'26E</div><div style="{c}color:#1D3557;">\'27E</div><div style="{c}color:#1D3557;">\'28E</div></div><div style="{rw}"><div style="{lb}">매출액</div><div style="{c}color:{fv_color(rv23)};">{fv(rv23)}</div><div style="{c}color:{fv_color(rv24)};">{fv(rv24)}</div><div style="{ce}color:{fv_color(rv25)};">{fv(rv25)}</div><div style="{ce}color:{fv_color(rv26)};">{fv(rv26)}</div><div style="{ce}color:{fv_color(rv27)};">{fv(rv27)}</div><div style="{ce}color:{fv_color(rv28)};">{fv(rv28)}</div></div><div style="{rw}"><div style="{lb}">영업이익</div><div style="{c}color:{fv_color(ov23)};">{fv(ov23)}</div><div style="{c}color:{fv_color(ov24)};">{fv(ov24)}</div><div style="{ce}color:{fv_color(ov25)};">{fv(ov25)}</div><div style="{ce}color:{fv_color(ov26)};">{fv(ov26)}</div><div style="{ce}color:{fv_color(ov27)};">{fv(ov27)}</div><div style="{ce}color:{fv_color(ov28)};">{fv(ov28)}</div></div></div></div>'
 
     st.markdown(f"""
     <div class="quant-card-light">
@@ -1136,16 +1142,18 @@ def render_stock_card(row, rank):
                         <div style="text-align:center;"><span style="color:#6C757D;font-size:0.65rem;">25E</span><br>{format_growth(rg25)}</div>
                         <div style="text-align:center;"><span style="color:#6C757D;font-size:0.65rem;">26E</span><br>{format_growth(rg26)}</div>
                         <div style="text-align:center;"><span style="color:#6C757D;font-size:0.65rem;">27E</span><br>{format_growth(rg27)}</div>
+                        <div style="text-align:center;"><span style="color:#6C757D;font-size:0.65rem;">28E</span><br>{format_growth(rg28)}</div>
                     </div></div>
                 <div style="text-align:center;"><span style="color:#6C757D;font-size:0.72rem;">영업이익성장률</span>
                     <div style="display:flex;gap:8px;margin-top:2px;">
                         <div style="text-align:center;"><span style="color:#6C757D;font-size:0.65rem;">25E</span><br>{format_growth(og25)}</div>
                         <div style="text-align:center;"><span style="color:#6C757D;font-size:0.65rem;">26E</span><br>{format_growth(og26)}</div>
                         <div style="text-align:center;"><span style="color:#6C757D;font-size:0.65rem;">27E</span><br>{format_growth(og27)}</div>
+                        <div style="text-align:center;"><span style="color:#6C757D;font-size:0.65rem;">28E</span><br>{format_growth(og28)}</div>
                     </div></div>
                 <div style="display:flex;gap:12px;align-items:center;">
                     <div style="text-align:center;padding:6px 10px;background:#F8F9FA;border:1px solid #E9ECEF;border-radius:4px;">
-                        <span style="color:#6C757D;font-size:0.7rem;">가시성 P{row.get('미래가시성_순위', 4)}</span><br>
+                        <span style="color:#6C757D;font-size:0.7rem;">가시성 P{row.get('미래가시성_순위', 5)}</span><br>
                         <span style="color:#212529;font-family:'JetBrains Mono',monospace;font-weight:800;font-size:1.1rem;">{row.get('미래가시성_성장률',0):,.1f}%</span>
                     </div>
                     <div style="text-align:center;padding:6px 10px;background:#F8F9FA;border:1px solid #E9ECEF;border-radius:4px;">
@@ -1389,8 +1397,8 @@ def main():
 
             show_cols = ['종목명','종목코드','시장','현재가','Recent_Volume','거래량배수','시가총액','업종',
                 'PER','Forward_PER','PEG','PBR','ROE','업종평균PER','데이터_가용성',
-                '매출액_성장률_2025','매출액_성장률_2026','매출액_성장률_2027','매출액_최대성장률',
-                '영업이익_성장률_2025','영업이익_성장률_2026','영업이익_성장률_2027','영업이익_최대성장률','종합성장점수']
+                '매출액_성장률_2025','매출액_성장률_2026','매출액_성장률_2027','매출액_성장률_2028','매출액_최대성장률',
+                '영업이익_성장률_2025','영업이익_성장률_2026','영업이익_성장률_2027','영업이익_성장률_2028','영업이익_최대성장률','종합성장점수']
             ac = [c for c in show_cols if c in df.columns]
             st.dataframe(df[ac], use_container_width=True, height=600, column_config={
                 "종목명": st.column_config.TextColumn("종목명", width="medium"),
