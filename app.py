@@ -893,10 +893,26 @@ def crawl_all_data(progress_bar, status_text, markets, max_workers):
 # ============================================================
 # 필터링 (캐시 데이터에서 즉시 필터링)
 # ============================================================
-def apply_filters(df, rev_thresh, op_thresh, min_vol, markets, req_min_rev_500=True, req_op_profit=True, drop_huge_loss=True):
+def apply_filters(df, rev_thresh, op_thresh, min_vol, markets, req_min_rev_500=True, req_op_profit=True, drop_huge_loss=True, op_size_label="1000억 이상"):
     if df.empty: return df
     if markets: df = df[df['시장'].isin(markets)]
     if min_vol > 0: df = df[df['Recent_Volume'] >= min_vol]
+
+    # 2026년 이후(2026/2027/2028) 영업이익 최대값 컬럼 생성 → 규모 필터 & 정렬에 사용
+    def _op_max_26(row):
+        vals = [row.get(f'영업이익_{y}', np.nan) for y in [2026, 2027, 2028]]
+        vals = [v for v in vals if pd.notna(v)]
+        return max(vals) if vals else np.nan
+    df = df.copy()
+    df['영업이익_26이후_최대'] = df.apply(_op_max_26, axis=1)
+
+    # 영업이익 규모 필터 (단위: 억)
+    if op_size_label == "300억 이하":
+        df = df[df['영업이익_26이후_최대'].notna() & (df['영업이익_26이후_최대'] <= 300)]
+    elif op_size_label == "500억~1000억":
+        df = df[df['영업이익_26이후_최대'].notna() & (df['영업이익_26이후_최대'] >= 500) & (df['영업이익_26이후_최대'] <= 1000)]
+    elif op_size_label == "1000억 이상":
+        df = df[df['영업이익_26이후_최대'].notna() & (df['영업이익_26이후_최대'] >= 1000)]
 
     def strict_financial_check(row):
         yrs = [2023, 2024, 2025, 2026, 2027, 2028]
@@ -1207,6 +1223,16 @@ def main():
         rev_thresh = st.slider("매출액 성장률 (% 이상)", 0, 500, 100, 10)
         op_thresh = st.slider("영업이익 성장률 (% 이상)", 0, 500, 100, 10)
 
+        st.markdown("### 💎 영업이익 규모 (2026년 이후)")
+        op_size_label = st.radio(
+            "영업이익 규모",
+            ["300억 이하", "500억~1000억", "1000억 이상"],
+            index=2,
+            horizontal=True,
+            label_visibility="collapsed",
+            help="2026·2027·2028년 예상 영업이익 중 최대값(단위: 억) 기준으로 필터링합니다.",
+        )
+
         st.markdown("### 📊 거래량 필터")
         vol_opts = {"제한 없음": 0, "1만 이상": 10000, "5만 이상": 50000, "10만 이상": 100000,
                     "50만 이상": 500000, "100만 이상": 1000000}
@@ -1256,7 +1282,7 @@ def main():
         cache_ts = cache['timestamp']
         elapsed = st.session_state.get('elapsed', 0)
 
-        df = apply_filters(all_df.copy(), rev_thresh, op_thresh, min_vol, markets, req_min_rev_500, req_op_profit, drop_huge_loss)
+        df = apply_filters(all_df.copy(), rev_thresh, op_thresh, min_vol, markets, req_min_rev_500, req_op_profit, drop_huge_loss, op_size_label)
 
         # 업종 매핑 적용
         # 업종 매핑: CSV 콜럼 우선, 없으면 sector_map.json, 구 파일도 없으면 런타임 크롤링
@@ -1300,6 +1326,7 @@ def main():
             scol1, scol2 = st.columns([2, 1])
             with scol1:
                 sort_options = {
+                    "💎 영업이익 규모 (2026+)": "영업이익_26이후_최대",
                     "🌟 미래 가시성 핵심성장 (1~3순위)": "가시성기준_정렬점수",
                     "📊 매출+영업이익 합산점수": "종합성장점수",
                     "💰 매출 1년최대성장률 (단기)": "매출액_최대성장률",
