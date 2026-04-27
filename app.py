@@ -1015,6 +1015,14 @@ def format_volume(v):
     if v >= 1_000: return f"{v/1_000:.0f}K"
     return f"{int(v)}"
 
+def format_turnover(volume, price):
+    if pd.isna(volume) or pd.isna(price) or volume == 0 or price == 0: return "-"
+    won = volume * price
+    if won >= 1_000_000_000_000: return f"{won/1_000_000_000_000:.1f}조"
+    if won >= 100_000_000: return f"{won/100_000_000:,.0f}억"
+    if won >= 10_000: return f"{won/10_000:,.0f}만"
+    return f"{int(won):,}원"
+
 # ============================================================
 # 접근 제어 (비밀번호)
 # ============================================================
@@ -1143,8 +1151,9 @@ def render_stock_card(row, rank):
                 <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:4px;align-items:flex-end;">
                     <div><span style="color:#6C757D;font-size:0.75rem;">현재가</span><br><span style="color:#212529;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:1.05rem;">{format_price(price)}</span></div>
                     <div>
-                        <span style="color:#6C757D;font-size:0.75rem;">거래량</span><br>
+                        <span style="color:#6C757D;font-size:0.75rem;">거래량 / 거래대금</span><br>
                         <span style="color:#212529;font-family:'JetBrains Mono',monospace;font-size:0.95rem;">{format_volume(volume)}</span>
+                        <span style="color:#6C757D;font-family:'JetBrains Mono',monospace;font-size:0.88rem;margin-left:4px;">/ {format_turnover(volume, price)}</span>
                         <span style="font-size:0.82rem;margin-left:4px;">{vol_ratio_html}</span>
                     </div>
                     <div><span style="color:#6C757D;font-size:0.75rem;">시가총액</span><br><span style="color:#212529;font-family:'JetBrains Mono',monospace;font-size:0.95rem;">{format_number(mcap)}</span></div>
@@ -1326,8 +1335,8 @@ def main():
             scol1, scol2 = st.columns([2, 1])
             with scol1:
                 sort_options = {
-                    "💎 영업이익 규모 (2026+)": "영업이익_26이후_최대",
                     "🌟 미래 가시성 핵심성장 (1~3순위)": "가시성기준_정렬점수",
+                    "💎 영업이익 규모 (2026+)": "영업이익_26이후_최대",
                     "📊 매출+영업이익 합산점수": "종합성장점수",
                     "💰 매출 1년최대성장률 (단기)": "매출액_최대성장률",
                     "📈 영업이익 1년최대성장률 (단기)": "영업이익_최대성장률",
