@@ -1263,9 +1263,9 @@ def format_turnover(volume, price):
 # ============================================================
 # 성장률 라인차트 (SVG, 카드 내부에 인라인 삽입)
 # ============================================================
-def build_growth_svg(rev_vals, op_vals, year_labels, width=420, height=110):
+def build_growth_svg(rev_vals, op_vals, year_labels, width=420, height=130):
     """매출/영업이익 성장률을 카드 내부에 그리는 SVG 라인차트."""
-    pad_l, pad_r, pad_t, pad_b = 32, 12, 24, 20
+    pad_l, pad_r, pad_t, pad_b = 34, 14, 26, 22
     inner_w = width - pad_l - pad_r
     inner_h = height - pad_t - pad_b
 
@@ -1342,26 +1342,29 @@ def build_growth_svg(rev_vals, op_vals, year_labels, width=420, height=110):
         f'text-anchor="end" font-family="JetBrains Mono, monospace">{vmin:.0f}%</text>'
     )
 
-    def build_line(vals, color, label_color):
+    def build_line(vals, color, label_color, label_above=True):
         pts = [(x_at(i), y_at(v), v) for i, v in enumerate(vals) if pd.notna(v)]
         if not pts:
             return ''
+        dy = -7 if label_above else 13
         if len(pts) == 1:
             x, y, v = pts[0]
             return (
                 f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4" fill="{color}"/>'
-                f'<text x="{x:.1f}" y="{y - 8:.1f}" fill="{label_color}" font-size="10" '
-                f'text-anchor="middle" font-family="JetBrains Mono, monospace" font-weight="700">'
+                f'<text x="{x:.1f}" y="{y + dy:.1f}" fill="{label_color}" font-size="9" '
+                f'text-anchor="middle" font-family="JetBrains Mono, monospace" font-weight="700" '
+                f'paint-order="stroke" stroke="rgba(17,24,39,0.85)" stroke-width="2">'
                 f'{v:.0f}%</text>'
             )
         d = ' '.join(f'{"M" if i == 0 else "L"} {x:.1f} {y:.1f}' for i, (x, y, _) in enumerate(pts))
         circles = ''.join(
-            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3.5" fill="{color}" stroke="#1F2937" stroke-width="1"/>'
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3.2" fill="{color}" stroke="#1F2937" stroke-width="1"/>'
             for x, y, _ in pts
         )
         labels = ''.join(
-            f'<text x="{x:.1f}" y="{y - 8:.1f}" fill="{label_color}" font-size="10" '
-            f'text-anchor="middle" font-family="JetBrains Mono, monospace" font-weight="700">'
+            f'<text x="{x:.1f}" y="{y + dy:.1f}" fill="{label_color}" font-size="9" '
+            f'text-anchor="middle" font-family="JetBrains Mono, monospace" font-weight="700" '
+            f'paint-order="stroke" stroke="rgba(17,24,39,0.85)" stroke-width="2">'
             f'{v:.0f}%</text>'
             for x, y, v in pts
         )
@@ -1371,8 +1374,9 @@ def build_growth_svg(rev_vals, op_vals, year_labels, width=420, height=110):
             + circles + labels
         )
 
-    rev_path = build_line(rev_vals, '#34D399', '#6EE7B7')
-    op_path  = build_line(op_vals,  '#A78BFA', '#C4B5FD')
+    # 매출은 라벨을 점 위에, 영업이익은 점 아래에 배치해 겹침 방지
+    rev_path = build_line(rev_vals, '#34D399', '#6EE7B7', label_above=True)
+    op_path  = build_line(op_vals,  '#A78BFA', '#C4B5FD', label_above=False)
 
     return (
         f'<svg width="100%" viewBox="0 0 {width} {height}" '
