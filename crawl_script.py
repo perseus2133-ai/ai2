@@ -273,32 +273,95 @@ def scrape_naver_per_pbr_roe(stock_code):
     return result
 
 
-def get_avg_volume_20d(stock_code):
-    """네이버 일별 시세에서 최근 20거래일 평균 거래량을 반환한다."""
+def get_daily_pv(stock_code, n_pages=2):
+    """네이버 일별 시세에서 종가/거래량 시계열을 반환한다 (최신순)."""
+    session = get_session()
+    prices, volumes = [], []
+    for page in range(1, n_pages + 1):
+        try:
+            url = f'https://finance.naver.com/item/sise_day.naver?code={stock_code}&page={page}'
+            resp = session.get(url, timeout=6)
+            resp.encoding = 'euc-kr'
+            soup = BeautifulSoup(resp.text, 'lxml')
+            table = soup.find('table', class_='type2')
+            if not table:
+                break
+            page_added = 0
+            for row in table.find_all('tr'):
+                cells = row.find_all('td')
+                if len(cells) < 7:
+                    continue
+                close_text = cells[1].get_text(strip=True).replace(',', '')
+                vol_text = cells[6].get_text(strip=True).replace(',', '')
+                if close_text.isdigit() and vol_text.isdigit() and int(vol_text) > 0:
+                    prices.append(int(close_text))
+                    volumes.append(int(vol_text))
+                    page_added += 1
+            if page_added == 0:
+                break
+        except:
+            break
+    return prices, volumes
+
+
+def calc_obv_rsi(prices, volumes):
+    """OBV 추세 + RSI(14). 입력은 최신순."""
+    if len(prices) < 15:
+        return {}
+    p = list(reversed(prices))
+    v = list(reversed(volumes))
+    obv = [0]
+    for i in range(1, len(p)):
+        if p[i] > p[i - 1]:
+            obv.append(obv[-1] + v[i])
+        elif p[i] < p[i - 1]:
+            obv.append(obv[-1] - v[i])
+        else:
+            obv.append(obv[-1])
+    n_obv = min(10, len(obv))
+    obv_change = obv[-1] - obv[-n_obv]
+    obv_trend = 'up' if obv_change > 0 else ('down' if obv_change < 0 else 'flat')
+
+    gains, losses = [], []
+    for i in range(1, len(p)):
+        d = p[i] - p[i - 1]
+        gains.append(max(d, 0))
+        losses.append(max(-d, 0))
+    if len(gains) >= 14:
+        avg_gain = sum(gains[-14:]) / 14.0
+        avg_loss = sum(losses[-14:]) / 14.0
+        if avg_loss == 0:
+            rsi = 100.0 if avg_gain > 0 else 50.0
+        else:
+            rs = avg_gain / avg_loss
+            rsi = 100.0 - (100.0 / (1.0 + rs))
+        rsi = round(rsi, 1)
+    else:
+        rsi = np.nan
+    return {'OBV_trend': obv_trend, 'RSI': rsi}
+
+
+def fetch_supplement_indicators(stock_code):
+    """20일 평균 거래량 + OBV 추세 + RSI를 한 번에 계산한다."""
+    out = {'평균거래량_20d': np.nan, 'OBV_trend': '', 'RSI': np.nan}
     try:
-        session = get_session()
-        url = f'https://finance.naver.com/item/sise_day.naver?code={stock_code}&page=1'
-        resp = session.get(url, timeout=6)
-        resp.encoding = 'euc-kr'
-        soup = BeautifulSoup(resp.text, 'lxml')
-        volumes = []
-        table = soup.find('table', class_='type2')
-        if not table:
-            return np.nan
-        for row in table.find_all('tr'):
-            cells = row.find_all('td')
-            if len(cells) < 7:
-                continue
-            vol_text = cells[6].get_text(strip=True).replace(',', '')
-            if vol_text and vol_text.isdigit() and int(vol_text) > 0:
-                volumes.append(int(vol_text))
-                if len(volumes) >= 20:
-                    break
-        if len(volumes) >= 3:
-            return round(sum(volumes) / len(volumes))
+        prices, volumes = get_daily_pv(stock_code, n_pages=2)
+        if volumes:
+            recent_vols = volumes[:20]
+            if len(recent_vols) >= 3:
+                out['평균거래량_20d'] = round(sum(recent_vols) / len(recent_vols))
+        ind = calc_obv_rsi(prices, volumes)
+        if ind:
+            out['OBV_trend'] = ind.get('OBV_trend', '')
+            out['RSI'] = ind.get('RSI', np.nan)
     except:
         pass
-    return np.nan
+    return out
+
+
+def get_avg_volume_20d(stock_code):
+    """레거시 호환 - 20일 평균 거래량만 반환."""
+    return fetch_supplement_indicators(stock_code).get('평균거래량_20d', np.nan)
 
 
 def scrape_naver_consensus(stock_code, stock_name):
@@ -405,11 +468,16 @@ def scrape_naver_consensus(stock_code, stock_name):
             result['PBR'] = np.nan
             result['ROE'] = np.nan
 
-        # 20일 평균 거래량 수집
+        # 20일 평균 거래량 + OBV/RSI 수집
         try:
-            result['평균거래량_20d'] = get_avg_volume_20d(stock_code)
+            sup = fetch_supplement_indicators(stock_code)
+            result['평균거래량_20d'] = sup.get('평균거래량_20d', np.nan)
+            result['OBV_trend']     = sup.get('OBV_trend', '')
+            result['RSI']           = sup.get('RSI', np.nan)
         except:
             result['평균거래량_20d'] = np.nan
+            result['OBV_trend']     = ''
+            result['RSI']           = np.nan
 
         return result
     except:

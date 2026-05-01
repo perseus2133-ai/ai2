@@ -301,6 +301,115 @@ div[data-testid="stVerticalBlock"] > div:has(div.element-container) {
     border-image-slice: 1;
 }
 
+/* === Dark Quant Card (screenshot-style, slightly brighter) === */
+.quant-card-dark {
+    background: linear-gradient(135deg, #3F4C60 0%, #313B4D 100%);
+    color: #E2E8F0;
+    border: 1px solid #4A5568;
+    border-radius: 14px;
+    padding: 22px;
+    margin-bottom: 16px;
+    box-shadow: 0 10px 24px rgba(0,0,0,0.30), 0 2px 6px rgba(0,0,0,0.20);
+    transition: all 0.3s ease;
+}
+.quant-card-dark:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 14px 32px rgba(0,0,0,0.40), 0 3px 8px rgba(0,0,0,0.25);
+    border-color: #62EFFF;
+}
+.qcd-rank {
+    background: rgba(98, 239, 255, 0.12);
+    color: #62EFFF;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82rem;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 5px;
+    border: 1px solid rgba(98, 239, 255, 0.25);
+}
+.qcd-badge-kospi {
+    background: linear-gradient(135deg, #FBBF24, #F59E0B);
+    color: #1A1C24;
+    font-weight: 800;
+    font-size: 0.7rem;
+    padding: 3px 9px;
+    border-radius: 5px;
+    letter-spacing: 0.4px;
+}
+.qcd-badge-kosdaq {
+    background: linear-gradient(135deg, #FB923C, #F97316);
+    color: #1A1C24;
+    font-weight: 800;
+    font-size: 0.7rem;
+    padding: 3px 9px;
+    border-radius: 5px;
+    letter-spacing: 0.4px;
+}
+.qcd-name { color: #FFFFFF; font-size: 1.18rem; font-weight: 700; }
+.qcd-code { color: #94A3B8; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; margin-left: 6px; }
+.qcd-stat-label { color: #94A3B8; font-size: 0.72rem; font-weight: 600; }
+.qcd-stat-val { color: #FFFFFF; font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 1.0rem; }
+
+.qcd-chart-box {
+    background: rgba(17, 24, 39, 0.45);
+    border: 1px solid #4A5568;
+    border-radius: 10px;
+    padding: 12px 14px 8px 14px;
+    margin: 14px 0;
+}
+.qcd-chart-legend { display:flex; gap:18px; align-items:center; font-size:0.75rem; color:#CBD5E0; margin-bottom:6px; }
+.qcd-chart-legend .dot { display:inline-block; width:10px; height:3px; border-radius:1px; margin-right:6px; vertical-align:middle; }
+
+.qcd-pill {
+    background: rgba(17, 24, 39, 0.55);
+    border: 1px solid #4A5568;
+    border-radius: 9px;
+    padding: 9px 14px;
+    min-width: 78px;
+    text-align: center;
+    transition: all 0.2s ease;
+}
+.qcd-pill .lbl { color: #94A3B8; font-size: 0.7rem; font-weight: 600; }
+.qcd-pill .val { color: #FFFFFF; font-family: 'JetBrains Mono', monospace; font-weight: 800; font-size: 1.05rem; margin-top: 2px; }
+.qcd-pill.hi { border-color: #62EFFF; box-shadow: 0 0 10px rgba(98,239,255,0.18) inset, 0 0 8px rgba(98,239,255,0.12); }
+.qcd-pill.hi .lbl { color: #62EFFF; }
+.qcd-pill.hi .val { color: #62EFFF; }
+
+.qcd-tech-box {
+    background: rgba(17, 24, 39, 0.45);
+    border: 1px solid #4A5568;
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin: 12px 0;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    flex-wrap: wrap;
+}
+.qcd-tech-label { color:#94A3B8; font-size:0.72rem; font-weight:600; letter-spacing:0.3px; }
+.qcd-tech-item { display:flex; flex-direction:column; gap:2px; }
+.qcd-tech-item .k { color:#94A3B8; font-size:0.7rem; }
+.qcd-tech-item .v { font-family:'JetBrains Mono', monospace; font-weight:700; font-size:0.95rem; }
+
+.qcd-evidence {
+    background: rgba(17, 24, 39, 0.40);
+    border: 1px solid #4A5568;
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin-top: 10px;
+}
+.qcd-evidence .head { color:#94A3B8; font-size:0.7rem; font-weight:600; margin-bottom:6px; }
+.qcd-naver-link {
+    display:inline-flex; align-items:center; gap:5px;
+    background: rgba(98,239,255,0.08);
+    color: #62EFFF !important;
+    border: 1px solid rgba(98,239,255,0.35);
+    padding: 6px 12px; border-radius: 6px;
+    font-size: 0.78rem; font-weight: 700; text-decoration: none !important;
+    transition: all 0.2s ease;
+}
+.qcd-naver-link:hover { background: rgba(98,239,255,0.15); transform: translateY(-1px); }
+
 .stock-name { font-size: 1.15rem; font-weight: 700; color: #212529 !important; }
 .stock-code { color: #1D3557; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; margin-left: 4px; }
 
@@ -683,32 +792,114 @@ def scrape_naver_per_pbr_roe(stock_code):
     return result
 
 
-def get_avg_volume_20d(stock_code):
-    """네이버 일별 시세에서 최근 20거래일 평균 거래량을 반환한다."""
+def get_daily_pv(stock_code, n_pages=2):
+    """네이버 일별 시세에서 종가/거래량 시계열을 가져온다 (최신순)."""
+    session = get_session()
+    prices, volumes = [], []
+    for page in range(1, n_pages + 1):
+        try:
+            url = f'https://finance.naver.com/item/sise_day.naver?code={stock_code}&page={page}'
+            resp = session.get(url, timeout=6)
+            resp.encoding = 'euc-kr'
+            soup = BeautifulSoup(resp.text, 'lxml')
+            table = soup.find('table', class_='type2')
+            if not table:
+                break
+            page_added = 0
+            for row in table.find_all('tr'):
+                cells = row.find_all('td')
+                if len(cells) < 7:
+                    continue
+                close_text = cells[1].get_text(strip=True).replace(',', '')
+                vol_text = cells[6].get_text(strip=True).replace(',', '')
+                if close_text.isdigit() and vol_text.isdigit() and int(vol_text) > 0:
+                    prices.append(int(close_text))
+                    volumes.append(int(vol_text))
+                    page_added += 1
+            if page_added == 0:
+                break
+        except:
+            break
+    return prices, volumes
+
+
+def calc_obv_rsi(prices, volumes):
+    """OBV 추세와 RSI(14)를 계산한다. prices/volumes는 최신순 입력."""
+    if len(prices) < 15:
+        return {}
+    p = list(reversed(prices))
+    v = list(reversed(volumes))
+    obv = [0]
+    for i in range(1, len(p)):
+        if p[i] > p[i - 1]:
+            obv.append(obv[-1] + v[i])
+        elif p[i] < p[i - 1]:
+            obv.append(obv[-1] - v[i])
+        else:
+            obv.append(obv[-1])
+    n_obv = min(10, len(obv))
+    obv_change = obv[-1] - obv[-n_obv]
+    if obv_change > 0:
+        obv_trend = 'up'
+    elif obv_change < 0:
+        obv_trend = 'down'
+    else:
+        obv_trend = 'flat'
+
+    gains, losses = [], []
+    for i in range(1, len(p)):
+        d = p[i] - p[i - 1]
+        gains.append(max(d, 0))
+        losses.append(max(-d, 0))
+    if len(gains) >= 14:
+        avg_gain = sum(gains[-14:]) / 14.0
+        avg_loss = sum(losses[-14:]) / 14.0
+        if avg_loss == 0:
+            rsi = 100.0 if avg_gain > 0 else 50.0
+        else:
+            rs = avg_gain / avg_loss
+            rsi = 100.0 - (100.0 / (1.0 + rs))
+        rsi = round(rsi, 1)
+    else:
+        rsi = np.nan
+    return {'OBV_trend': obv_trend, 'RSI': rsi}
+
+
+def fetch_supplement_indicators(stock_code):
+    """20일 평균 거래량 + OBV 추세 + RSI를 한 번에 계산한다."""
+    out = {'평균거래량_20d': np.nan, 'OBV_trend': '', 'RSI': np.nan}
     try:
-        session = get_session()
-        url = f'https://finance.naver.com/item/sise_day.naver?code={stock_code}&page=1'
-        resp = session.get(url, timeout=6)
-        resp.encoding = 'euc-kr'
-        soup = BeautifulSoup(resp.text, 'lxml')
-        volumes = []
-        table = soup.find('table', class_='type2')
-        if not table:
-            return np.nan
-        for row in table.find_all('tr'):
-            cells = row.find_all('td')
-            if len(cells) < 7:
-                continue
-            vol_text = cells[6].get_text(strip=True).replace(',', '')
-            if vol_text and vol_text.isdigit() and int(vol_text) > 0:
-                volumes.append(int(vol_text))
-                if len(volumes) >= 20:
-                    break
-        if len(volumes) >= 3:
-            return round(sum(volumes) / len(volumes))
+        prices, volumes = get_daily_pv(stock_code, n_pages=2)
+        if volumes:
+            recent_vols = volumes[:20]
+            if len(recent_vols) >= 3:
+                out['평균거래량_20d'] = round(sum(recent_vols) / len(recent_vols))
+        ind = calc_obv_rsi(prices, volumes)
+        if ind:
+            out['OBV_trend'] = ind.get('OBV_trend', '')
+            out['RSI'] = ind.get('RSI', np.nan)
     except:
         pass
-    return np.nan
+    return out
+
+
+def get_avg_volume_20d(stock_code):
+    """레거시 호환 - 20일 평균 거래량만 반환."""
+    return fetch_supplement_indicators(stock_code).get('평균거래량_20d', np.nan)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def compute_obv_rsi_cached(stock_code):
+    """렌더 시점 폴백용: 캐시에 OBV/RSI가 없으면 즉석에서 계산."""
+    try:
+        prices, volumes = get_daily_pv(str(stock_code).zfill(6), n_pages=2)
+        ind = calc_obv_rsi(prices, volumes)
+        return {
+            'OBV_trend': ind.get('OBV_trend', ''),
+            'RSI': ind.get('RSI', np.nan),
+        }
+    except:
+        return {'OBV_trend': '', 'RSI': np.nan}
 
 
 def scrape_naver_consensus(stock_code, stock_name):
@@ -815,11 +1006,16 @@ def scrape_naver_consensus(stock_code, stock_name):
             result['PBR'] = np.nan
             result['ROE'] = np.nan
 
-        # 20일 평균 거래량 수집
+        # 20일 평균 거래량 + OBV/RSI 수집
         try:
-            result['평균거래량_20d'] = get_avg_volume_20d(stock_code)
+            sup = fetch_supplement_indicators(stock_code)
+            result['평균거래량_20d'] = sup.get('평균거래량_20d', np.nan)
+            result['OBV_trend']     = sup.get('OBV_trend', '')
+            result['RSI']           = sup.get('RSI', np.nan)
         except:
             result['평균거래량_20d'] = np.nan
+            result['OBV_trend']     = ''
+            result['RSI']           = np.nan
 
         return result
     except Exception as e:
@@ -1023,6 +1219,156 @@ def format_turnover(volume, price):
     if won >= 10_000: return f"{won/10_000:,.0f}만"
     return f"{int(won):,}원"
 
+
+# ============================================================
+# 성장률 라인차트 (SVG, 카드 내부에 인라인 삽입)
+# ============================================================
+def build_growth_svg(rev_vals, op_vals, year_labels, width=560, height=170):
+    """매출/영업이익 성장률을 카드 내부에 그리는 SVG 라인차트."""
+    pad_l, pad_r, pad_t, pad_b = 38, 14, 32, 26
+    inner_w = width - pad_l - pad_r
+    inner_h = height - pad_t - pad_b
+
+    rev_clean = [v for v in rev_vals if pd.notna(v)]
+    op_clean  = [v for v in op_vals  if pd.notna(v)]
+    all_vals  = rev_clean + op_clean
+
+    legend = (
+        f'<g transform="translate({pad_l},10)" font-family="Inter, sans-serif" font-size="11" fill="#CBD5E0">'
+        f'<rect x="0" y="3" width="14" height="3" fill="#34D399" rx="1"/>'
+        f'<text x="20" y="11">매출 성장률</text>'
+        f'<rect x="110" y="3" width="14" height="3" fill="#A78BFA" rx="1"/>'
+        f'<text x="130" y="11">영업이익 성장률</text>'
+        f'</g>'
+    )
+
+    if not all_vals:
+        empty = (
+            f'<text x="{width/2}" y="{height/2 + 4}" fill="#94A3B8" '
+            f'text-anchor="middle" font-size="13" font-family="Inter, sans-serif">'
+            f'성장률 데이터 없음</text>'
+        )
+        return (
+            f'<svg width="100%" viewBox="0 0 {width} {height}" '
+            f'preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" '
+            f'style="display:block;">{legend}{empty}</svg>'
+        )
+
+    vmin, vmax = min(all_vals), max(all_vals)
+    if vmin > 0: vmin = 0
+    if vmax < 0: vmax = 0
+    if vmin == vmax:
+        vmin -= 10; vmax += 10
+    span = vmax - vmin
+    pad = span * 0.12 if span > 0 else 10
+    vmin -= pad; vmax += pad
+    span = vmax - vmin if vmax != vmin else 1
+
+    n = len(year_labels)
+    def x_at(i):
+        return pad_l + (inner_w * i / max(1, n - 1))
+    def y_at(v):
+        return pad_t + inner_h - ((v - vmin) / span) * inner_h
+
+    # 가로 그리드 + 0% 기준선
+    grid = ''
+    for frac in (0.0, 0.5, 1.0):
+        gy = pad_t + inner_h * frac
+        grid += (
+            f'<line x1="{pad_l}" y1="{gy:.1f}" x2="{width - pad_r}" y2="{gy:.1f}" '
+            f'stroke="#4A5568" stroke-width="0.5" stroke-dasharray="2,3" opacity="0.6"/>'
+        )
+    if vmin <= 0 <= vmax:
+        zy = y_at(0)
+        grid += (
+            f'<line x1="{pad_l}" y1="{zy:.1f}" x2="{width - pad_r}" y2="{zy:.1f}" '
+            f'stroke="#94A3B8" stroke-width="0.8" stroke-dasharray="3,3" opacity="0.55"/>'
+        )
+
+    # X축 라벨
+    x_labels = ''
+    for i, lab in enumerate(year_labels):
+        x_labels += (
+            f'<text x="{x_at(i):.1f}" y="{height - 8}" fill="#94A3B8" '
+            f'font-size="11" text-anchor="middle" '
+            f'font-family="JetBrains Mono, monospace">{lab}</text>'
+        )
+
+    # Y축 라벨 (vmin / vmax)
+    y_labels = (
+        f'<text x="{pad_l - 6}" y="{pad_t + 4:.1f}" fill="#94A3B8" font-size="9" '
+        f'text-anchor="end" font-family="JetBrains Mono, monospace">{vmax:.0f}%</text>'
+        f'<text x="{pad_l - 6}" y="{pad_t + inner_h + 3:.1f}" fill="#94A3B8" font-size="9" '
+        f'text-anchor="end" font-family="JetBrains Mono, monospace">{vmin:.0f}%</text>'
+    )
+
+    def build_line(vals, color, label_color):
+        pts = [(x_at(i), y_at(v), v) for i, v in enumerate(vals) if pd.notna(v)]
+        if not pts:
+            return ''
+        if len(pts) == 1:
+            x, y, v = pts[0]
+            return (
+                f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4" fill="{color}"/>'
+                f'<text x="{x:.1f}" y="{y - 8:.1f}" fill="{label_color}" font-size="10" '
+                f'text-anchor="middle" font-family="JetBrains Mono, monospace" font-weight="700">'
+                f'{v:.0f}%</text>'
+            )
+        d = ' '.join(f'{"M" if i == 0 else "L"} {x:.1f} {y:.1f}' for i, (x, y, _) in enumerate(pts))
+        circles = ''.join(
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3.5" fill="{color}" stroke="#1F2937" stroke-width="1"/>'
+            for x, y, _ in pts
+        )
+        labels = ''.join(
+            f'<text x="{x:.1f}" y="{y - 8:.1f}" fill="{label_color}" font-size="10" '
+            f'text-anchor="middle" font-family="JetBrains Mono, monospace" font-weight="700">'
+            f'{v:.0f}%</text>'
+            for x, y, v in pts
+        )
+        return (
+            f'<path d="{d}" fill="none" stroke="{color}" stroke-width="2.2" '
+            f'stroke-linecap="round" stroke-linejoin="round"/>'
+            + circles + labels
+        )
+
+    rev_path = build_line(rev_vals, '#34D399', '#6EE7B7')
+    op_path  = build_line(op_vals,  '#A78BFA', '#C4B5FD')
+
+    return (
+        f'<svg width="100%" viewBox="0 0 {width} {height}" '
+        f'preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" '
+        f'style="display:block;">'
+        f'{grid}{legend}{rev_path}{op_path}{x_labels}{y_labels}'
+        f'</svg>'
+    )
+
+
+def obv_rsi_verdict(obv_trend, rsi):
+    """OBV 추세 + RSI 조합으로 적정성 판단."""
+    if (not obv_trend or obv_trend == '') and (rsi is None or pd.isna(rsi)):
+        return {'verdict': '데이터 없음', 'color': '#94A3B8', 'icon': '·', 'reason': '기술 지표 미수집'}
+    if pd.isna(rsi):
+        return {'verdict': '판단 보류', 'color': '#94A3B8', 'icon': '·', 'reason': 'RSI 데이터 부족'}
+    obv_up = obv_trend == 'up'
+    obv_dn = obv_trend == 'down'
+    if rsi >= 70 and obv_up:
+        return {'verdict': '과열 주의', 'color': '#F59E0B', 'icon': '⚠', 'reason': 'RSI 과매수 + 매집 (단기 차익실현 구간)'}
+    if rsi >= 70 and not obv_up:
+        return {'verdict': '고점 신호', 'color': '#EF4444', 'icon': '▼', 'reason': 'RSI 과매수 + OBV 하락 (다이버전스)'}
+    if rsi <= 30 and obv_up:
+        return {'verdict': '저평가 매수', 'color': '#10B981', 'icon': '★', 'reason': 'RSI 과매도 + OBV 매집 (반등 가능)'}
+    if rsi <= 30 and not obv_up:
+        return {'verdict': '약세 관망', 'color': '#94A3B8', 'icon': '⏳', 'reason': 'RSI 과매도 + OBV 분산 (추세 확인)'}
+    if obv_up and rsi >= 50:
+        return {'verdict': '상승 추세', 'color': '#10B981', 'icon': '▲', 'reason': 'OBV 매집 + RSI 강세 (적정)'}
+    if obv_up and rsi < 50:
+        return {'verdict': '매집 진행', 'color': '#34D399', 'icon': '↗', 'reason': 'OBV 상승 (수급 양호)'}
+    if obv_dn and rsi >= 50:
+        return {'verdict': '추세 약화', 'color': '#F59E0B', 'icon': '↘', 'reason': 'RSI 강세이나 OBV 분산'}
+    if obv_dn:
+        return {'verdict': '분산 진행', 'color': '#EF4444', 'icon': '▽', 'reason': 'OBV 하락 (수급 약화)'}
+    return {'verdict': '중립', 'color': '#62EFFF', 'icon': '·', 'reason': '특별한 시그널 없음'}
+
 # ============================================================
 # 접근 제어 (비밀번호)
 # ============================================================
@@ -1053,147 +1399,243 @@ def check_password():
 # 메인 UI
 # ============================================================
 def render_stock_card(row, rank):
-    code = row.get('종목코드',''); name = row.get('종목명',''); market = row.get('시장','')
-    price = row.get('현재가',0); volume = row.get('Recent_Volume',0)
-    mcap = row.get('시가총액',0); score = row.get('종합성장점수',0); avail = row.get('데이터_가용성','-')
-    rg25,rg26,rg27,rg28 = row.get('매출액_성장률_2025',np.nan),row.get('매출액_성장률_2026',np.nan),row.get('매출액_성장률_2027',np.nan),row.get('매출액_성장률_2028',np.nan)
-    og25,og26,og27,og28 = row.get('영업이익_성장률_2025',np.nan),row.get('영업이익_성장률_2026',np.nan),row.get('영업이익_성장률_2027',np.nan),row.get('영업이익_성장률_2028',np.nan)
+    code = row.get('종목코드','')
+    name = row.get('종목명','')
+    market = row.get('시장','')
+    price = row.get('현재가',0)
+    volume = row.get('Recent_Volume',0)
+    mcap = row.get('시가총액',0)
+    score = row.get('종합성장점수',0)
+    avail = row.get('데이터_가용성','-')
 
-    per_val = row.get('PER', np.nan)
-    pbr_val = row.get('PBR', np.nan)
-    roe_val = row.get('ROE', np.nan)
-    sector_per = row.get('업종평균PER', np.nan)
+    rg25 = row.get('매출액_성장률_2025', np.nan)
+    rg26 = row.get('매출액_성장률_2026', np.nan)
+    rg27 = row.get('매출액_성장률_2027', np.nan)
+    rg28 = row.get('매출액_성장률_2028', np.nan)
+    og25 = row.get('영업이익_성장률_2025', np.nan)
+    og26 = row.get('영업이익_성장률_2026', np.nan)
+    og27 = row.get('영업이익_성장률_2027', np.nan)
+    og28 = row.get('영업이익_성장률_2028', np.nan)
+
+    per_val     = row.get('PER', np.nan)
+    pbr_val     = row.get('PBR', np.nan)
+    roe_val     = row.get('ROE', np.nan)
+    sector_per  = row.get('업종평균PER', np.nan)
     fwd_per_val = row.get('Forward_PER', np.nan)
-    peg_val = row.get('PEG', np.nan)
-    vol_ratio = row.get('거래량배수', np.nan)
+    peg_val     = row.get('PEG', np.nan)
+    vol_ratio   = row.get('거래량배수', np.nan)
 
     code_str = str(code).zfill(6)
     nurl = f"https://finance.naver.com/item/main.naver?code={code_str}"
 
-    badge = f'<span class="badge-kospi">KOSPI</span>' if market=='KOSPI' else f'<span class="badge-kosdaq">KOSDAQ</span>'
-    si2 = "⭐" if score>=500 else "▪"
+    badge_cls = 'qcd-badge-kospi' if market == 'KOSPI' else 'qcd-badge-kosdaq'
+    badge = f'<span class="{badge_cls}">{market}</span>'
+    si2 = "⭐" if score >= 500 else "▪"
 
-    def fv(v):
-        if pd.isna(v): return '-'
-        return f'{v:,.0f}'
-    def fv_color(v):
-        if pd.isna(v): return '#CED4DA'
-        return '#FF6B6B' if v > 0 else '#4A90E2'
+    # ── OBV/RSI: 캐시에 없으면 즉석 계산 ────────────────────────
+    obv_trend = row.get('OBV_trend', '')
+    rsi_val   = row.get('RSI', np.nan)
+    if (not isinstance(obv_trend, str) or obv_trend == '') or pd.isna(rsi_val):
+        try:
+            ind = compute_obv_rsi_cached(code_str)
+            if not isinstance(obv_trend, str) or obv_trend == '':
+                obv_trend = ind.get('OBV_trend', '')
+            if pd.isna(rsi_val):
+                rsi_val = ind.get('RSI', np.nan)
+        except:
+            pass
 
-    rv23,rv24,rv25,rv26,rv27,rv28 = row.get('매출액_2023',np.nan),row.get('매출액_2024',np.nan),row.get('매출액_2025',np.nan),row.get('매출액_2026',np.nan),row.get('매출액_2027',np.nan),row.get('매출액_2028',np.nan)
-    ov23,ov24,ov25,ov26,ov27,ov28 = row.get('영업이익_2023',np.nan),row.get('영업이익_2024',np.nan),row.get('영업이익_2025',np.nan),row.get('영업이익_2026',np.nan),row.get('영업이익_2027',np.nan),row.get('영업이익_2028',np.nan)
-
-    hdr = 'display:flex;gap:0;font-size:0.72rem;color:#6C757D;margin-bottom:4px;border-bottom:1px solid #E9ECEF;padding-bottom:2px;'
-    rw = 'display:flex;gap:0;font-size:0.8rem;margin-bottom:2px;font-family:\\\'JetBrains Mono\\\', monospace;'
-    lb = 'width:80px;padding:2px 6px;color:#6C757D;font-size:0.75rem;flex-shrink:0;'
-    c = 'flex:1;text-align:right;padding:2px 6px;'
-    ce = 'flex:1;text-align:right;padding:2px 6px;font-weight:700;'
+    verdict = obv_rsi_verdict(obv_trend, rsi_val)
 
     # ── 거래량 폭증 배수 표시 ─────────────────────────────────
     if pd.notna(vol_ratio):
         if vol_ratio >= 5:
-            vol_ratio_html = f'<span style="color:#E53E3E;font-weight:800;font-family:\'JetBrains Mono\',monospace;">🔥 {vol_ratio:.1f}x</span>'
+            vol_ratio_html = f'<span style="color:#FCA5A5;font-weight:800;font-family:\'JetBrains Mono\',monospace;">🔥 {vol_ratio:.1f}x</span>'
         elif vol_ratio >= 2:
-            vol_ratio_html = f'<span style="color:#D97706;font-weight:700;font-family:\'JetBrains Mono\',monospace;">▲ {vol_ratio:.1f}x</span>'
+            vol_ratio_html = f'<span style="color:#FBBF24;font-weight:700;font-family:\'JetBrains Mono\',monospace;">▲ {vol_ratio:.1f}x</span>'
         else:
-            vol_ratio_html = f'<span style="color:#6C757D;font-family:\'JetBrains Mono\',monospace;">{vol_ratio:.1f}x</span>'
+            vol_ratio_html = f'<span style="color:#94A3B8;font-family:\'JetBrains Mono\',monospace;">{vol_ratio:.1f}x</span>'
     else:
-        vol_ratio_html = '<span style="color:#CED4DA;">-</span>'
+        vol_ratio_html = '<span style="color:#64748B;">-</span>'
 
-    # ── PER/Forward PER/PEG/PBR/ROE 표시 ──────────────────────
-    per_str = f'{per_val:.1f}' if pd.notna(per_val) else '-'
-    pbr_str = f'{pbr_val:.2f}' if pd.notna(pbr_val) else '-'
-    roe_str = f'{roe_val:.1f}%' if pd.notna(roe_val) else '-'
-    sec_per_str = f'{sector_per:.1f}' if pd.notna(sector_per) else '-'
+    # ── 지표 포맷 ──────────────────────────────────────────────
+    per_str     = f'{per_val:.1f}' if pd.notna(per_val) else '-'
+    pbr_str     = f'{pbr_val:.2f}' if pd.notna(pbr_val) else '-'
+    roe_str     = f'{roe_val:.1f}%' if pd.notna(roe_val) else '-'
     fwd_per_str = f'{fwd_per_val:.1f}' if pd.notna(fwd_per_val) else '-'
+    peg_str     = f'{peg_val:.2f}' if pd.notna(peg_val) else '-'
 
-    # PEG 색상: 1 이하=저평가(녹), 1~2=적정(기본), 2 초과=고평가(빨)
-    if pd.notna(peg_val):
-        if peg_val <= 1.0:
-            peg_color = '#2EAA7B'; peg_str = f'★ {peg_val:.2f}'
-        elif peg_val <= 2.0:
-            peg_color = '#D97706'; peg_str = f'{peg_val:.2f}'
-        else:
-            peg_color = '#FF6B6B'; peg_str = f'{peg_val:.2f}'
+    # ── 성장률 라인차트 (SVG) ─────────────────────────────────
+    chart_svg = build_growth_svg(
+        [rg25, rg26, rg27, rg28],
+        [og25, og26, og27, og28],
+        ["'25E", "'26E", "'27E", "'28E"],
+    )
+
+    # ── 재무 소스 (단위: 억원) ────────────────────────────────
+    rv23 = row.get('매출액_2023', np.nan); rv24 = row.get('매출액_2024', np.nan)
+    rv25 = row.get('매출액_2025', np.nan); rv26 = row.get('매출액_2026', np.nan)
+    rv27 = row.get('매출액_2027', np.nan); rv28 = row.get('매출액_2028', np.nan)
+    ov23 = row.get('영업이익_2023', np.nan); ov24 = row.get('영업이익_2024', np.nan)
+    ov25 = row.get('영업이익_2025', np.nan); ov26 = row.get('영업이익_2026', np.nan)
+    ov27 = row.get('영업이익_2027', np.nan); ov28 = row.get('영업이익_2028', np.nan)
+
+    def fv(v):
+        return '-' if pd.isna(v) else f'{v:,.0f}'
+    def fv_color(v):
+        if pd.isna(v): return '#64748B'
+        return '#FCA5A5' if v > 0 else '#93C5FD'
+
+    hdr = 'display:flex;gap:0;font-size:0.7rem;color:#94A3B8;margin-bottom:4px;border-bottom:1px solid #4A5568;padding-bottom:3px;'
+    rw = "display:flex;gap:0;font-size:0.8rem;margin-bottom:2px;font-family:'JetBrains Mono', monospace;"
+    lb = 'width:80px;padding:2px 6px;color:#94A3B8;font-size:0.75rem;flex-shrink:0;'
+    cc = 'flex:1;text-align:right;padding:2px 6px;'
+    ce = 'flex:1;text-align:right;padding:2px 6px;font-weight:700;'
+
+    evidence_html = (
+        f'<div class="qcd-evidence">'
+        f'<div class="head">재무 소스 (단위: 억원)</div>'
+        f'<div class="evidence-scroll">'
+        f'<div style="{hdr}"><div style="{lb}"></div>'
+        f'<div style="{cc}">\'23</div><div style="{cc}">\'24</div>'
+        f'<div style="{cc}color:#62EFFF;">\'25E</div>'
+        f'<div style="{cc}color:#62EFFF;">\'26E</div>'
+        f'<div style="{cc}color:#62EFFF;">\'27E</div>'
+        f'<div style="{cc}color:#62EFFF;">\'28E</div></div>'
+        f'<div style="{rw}"><div style="{lb}">매출액</div>'
+        f'<div style="{cc}color:{fv_color(rv23)};">{fv(rv23)}</div>'
+        f'<div style="{cc}color:{fv_color(rv24)};">{fv(rv24)}</div>'
+        f'<div style="{ce}color:{fv_color(rv25)};">{fv(rv25)}</div>'
+        f'<div style="{ce}color:{fv_color(rv26)};">{fv(rv26)}</div>'
+        f'<div style="{ce}color:{fv_color(rv27)};">{fv(rv27)}</div>'
+        f'<div style="{ce}color:{fv_color(rv28)};">{fv(rv28)}</div></div>'
+        f'<div style="{rw}"><div style="{lb}">영업이익</div>'
+        f'<div style="{cc}color:{fv_color(ov23)};">{fv(ov23)}</div>'
+        f'<div style="{cc}color:{fv_color(ov24)};">{fv(ov24)}</div>'
+        f'<div style="{ce}color:{fv_color(ov25)};">{fv(ov25)}</div>'
+        f'<div style="{ce}color:{fv_color(ov26)};">{fv(ov26)}</div>'
+        f'<div style="{ce}color:{fv_color(ov27)};">{fv(ov27)}</div>'
+        f'<div style="{ce}color:{fv_color(ov28)};">{fv(ov28)}</div></div>'
+        f'</div></div>'
+    )
+
+    # ── OBV / RSI 박스 ─────────────────────────────────────────
+    obv_label_map = {'up': '매집 ↗', 'down': '분산 ↘', 'flat': '횡보 →', '': '데이터 없음'}
+    obv_color_map = {'up': '#34D399', 'down': '#F87171', 'flat': '#94A3B8', '': '#64748B'}
+    obv_label = obv_label_map.get(obv_trend, '데이터 없음')
+    obv_color = obv_color_map.get(obv_trend, '#64748B')
+
+    if pd.isna(rsi_val):
+        rsi_str = '-'
+        rsi_zone = '데이터 없음'
+        rsi_color = '#64748B'
     else:
-        peg_color = '#CED4DA'; peg_str = '-'
+        rsi_str = f'{rsi_val:.1f}'
+        if rsi_val >= 70:
+            rsi_zone = '과매수'; rsi_color = '#F87171'
+        elif rsi_val <= 30:
+            rsi_zone = '과매도'; rsi_color = '#34D399'
+        else:
+            rsi_zone = '중립'; rsi_color = '#62EFFF'
 
-    # Forward PER 색상 (Trailing PER 대비 낮으면 녹색)
-    fwd_per_color = '#6C757D'
-    if pd.notna(fwd_per_val) and pd.notna(per_val):
-        fwd_per_color = '#2EAA7B' if fwd_per_val < per_val else '#6C757D'
+    tech_html = (
+        f'<div class="qcd-tech-box">'
+        f'<div class="qcd-tech-label">📡 보조지표 분석</div>'
+        f'<div class="qcd-tech-item"><span class="k">OBV 추세</span>'
+        f'<span class="v" style="color:{obv_color};">{obv_label}</span></div>'
+        f'<div class="qcd-tech-item"><span class="k">RSI(14)</span>'
+        f'<span class="v" style="color:{rsi_color};">{rsi_str} <span style="font-size:0.78rem;color:#94A3B8;font-weight:600;">({rsi_zone})</span></span></div>'
+        f'<div style="flex:1;"></div>'
+        f'<div class="qcd-tech-item" style="text-align:right;">'
+        f'<span class="k">종합 판정</span>'
+        f'<span class="v" style="color:{verdict["color"]};font-size:1.05rem;">'
+        f'{verdict["icon"]} {verdict["verdict"]}</span></div>'
+        f'<div style="flex-basis:100%;color:#94A3B8;font-size:0.72rem;margin-top:2px;">↳ {verdict["reason"]}</div>'
+        f'</div>'
+    )
 
-    # Trailing PER 색상 (업종평균 대비)
-    per_color = '#6C757D'
-    if pd.notna(per_val) and pd.notna(sector_per):
-        per_color = '#2EAA7B' if per_val < sector_per else '#FF6B6B'
+    # ── 5개 지표 pill (Fwd PER, ROE는 highlight) ───────────────
+    def pill(label, val, hi=False):
+        cls = 'qcd-pill hi' if hi else 'qcd-pill'
+        return f'<div class="{cls}"><div class="lbl">{label}</div><div class="val">{val}</div></div>'
 
-    indicators_html = f"""<div style="display:flex;gap:14px;margin-top:6px;flex-wrap:wrap;align-items:flex-start;">
-        <div><span style="color:#6C757D;font-size:0.72rem;">PER(TTM)</span><br><span style="color:{per_color};font-family:'JetBrains Mono',monospace;font-weight:700;font-size:0.92rem;">{per_str}</span></div>
-        <div><span style="color:#6C757D;font-size:0.72rem;">Fwd PER</span><br><span style="color:{fwd_per_color};font-family:'JetBrains Mono',monospace;font-weight:700;font-size:0.92rem;">{fwd_per_str}</span></div>
-        <div title="PEG = Forward PER ÷ 성장률(%) / 1이하=저평가"><span style="color:#6C757D;font-size:0.72rem;">PEG</span><br><span style="color:{peg_color};font-family:'JetBrains Mono',monospace;font-weight:700;font-size:0.92rem;">{peg_str}</span></div>
-        <div><span style="color:#6C757D;font-size:0.72rem;">업종PER</span><br><span style="color:#6C757D;font-family:'JetBrains Mono',monospace;font-size:0.88rem;">{sec_per_str}</span></div>
-        <div><span style="color:#6C757D;font-size:0.72rem;">PBR</span><br><span style="color:#6C757D;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:0.92rem;">{pbr_str}</span></div>
-        <div><span style="color:#6C757D;font-size:0.72rem;">ROE</span><br><span style="color:#1D3557;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:0.92rem;">{roe_str}</span></div>
-    </div>"""
+    pills_html = (
+        f'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px;">'
+        + pill('PER (TTM)', per_str)
+        + pill('Forward PER', fwd_per_str, hi=True)
+        + pill('PBR', pbr_str)
+        + pill('PEG', peg_str)
+        + pill('ROE', roe_str, hi=True)
+        + f'</div>'
+    )
 
-    evidence_html = f'<div style="margin-top:12px;padding:10px;background-color:#F8F9FA;border-radius:4px;border:1px solid #E9ECEF;"><div style="color:#6C757D;font-size:0.7rem;font-weight:600;margin-bottom:6px;">데이터 소스 (단위: 억원)</div><div class="evidence-scroll"><div style="{hdr}"><div style="{lb}"></div><div style="{c}">\'23</div><div style="{c}">\'24</div><div style="{c}color:#1D3557;">\'25E</div><div style="{c}color:#1D3557;">\'26E</div><div style="{c}color:#1D3557;">\'27E</div><div style="{c}color:#1D3557;">\'28E</div></div><div style="{rw}"><div style="{lb}">매출액</div><div style="{c}color:{fv_color(rv23)};">{fv(rv23)}</div><div style="{c}color:{fv_color(rv24)};">{fv(rv24)}</div><div style="{ce}color:{fv_color(rv25)};">{fv(rv25)}</div><div style="{ce}color:{fv_color(rv26)};">{fv(rv26)}</div><div style="{ce}color:{fv_color(rv27)};">{fv(rv27)}</div><div style="{ce}color:{fv_color(rv28)};">{fv(rv28)}</div></div><div style="{rw}"><div style="{lb}">영업이익</div><div style="{c}color:{fv_color(ov23)};">{fv(ov23)}</div><div style="{c}color:{fv_color(ov24)};">{fv(ov24)}</div><div style="{ce}color:{fv_color(ov25)};">{fv(ov25)}</div><div style="{ce}color:{fv_color(ov26)};">{fv(ov26)}</div><div style="{ce}color:{fv_color(ov27)};">{fv(ov27)}</div><div style="{ce}color:{fv_color(ov28)};">{fv(ov28)}</div></div></div></div>'
+    # ── 헤더 (rank, badge, name, code) ─────────────────────────
+    header_html = (
+        f'<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;'
+        f'border-bottom:1px solid #4A5568;padding-bottom:10px;margin-bottom:12px;">'
+        f'<span class="qcd-rank">#{rank}</span>'
+        f'{badge}'
+        f'<span class="qcd-name">{name}</span>'
+        f'<span class="qcd-code">{code_str}</span>'
+        f'<div style="flex:1;"></div>'
+        f'<a href="{nurl}" target="_blank" class="qcd-naver-link">'
+        f'<svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" '
+        f'fill="none" stroke-linecap="round" stroke-linejoin="round">'
+        f'<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>'
+        f'<polyline points="15 3 21 3 21 9"></polyline>'
+        f'<line x1="10" y1="14" x2="21" y2="3"></line></svg>상세보기</a>'
+        f'</div>'
+    )
 
-    st.markdown(f"""
-    <div class="quant-card-light">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;">
-            <div style="flex:1;min-width:260px;">
-                <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:8px;border-bottom:1px solid #E9ECEF;padding-bottom:6px;">
-                    <span style="color:#1D3557;font-family:'JetBrains Mono',monospace;font-size:0.95rem;">#{rank}</span>
-                    <span class="stock-name">{name}</span> {badge}
-                    <span class="stock-code">{code_str}</span>
-                </div>
-                <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:4px;align-items:flex-end;">
-                    <div><span style="color:#6C757D;font-size:0.75rem;">현재가</span><br><span style="color:#212529;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:1.05rem;">{format_price(price)}</span></div>
-                    <div>
-                        <span style="color:#6C757D;font-size:0.75rem;">거래량 / 거래대금</span><br>
-                        <span style="color:#212529;font-family:'JetBrains Mono',monospace;font-size:0.95rem;">{format_volume(volume)}</span>
-                        <span style="color:#6C757D;font-family:'JetBrains Mono',monospace;font-size:0.88rem;margin-left:4px;">/ {format_turnover(volume, price)}</span>
-                        <span style="font-size:0.82rem;margin-left:4px;">{vol_ratio_html}</span>
-                    </div>
-                    <div><span style="color:#6C757D;font-size:0.75rem;">시가총액</span><br><span style="color:#212529;font-family:'JetBrains Mono',monospace;font-size:0.95rem;">{format_number(mcap)}</span></div>
-                    <div><span style="color:#6C757D;font-size:0.75rem;">데이터</span><br><span style="color:#1D3557;font-family:'JetBrains Mono',monospace;font-size:0.9rem;">{avail}</span></div>
-                </div>
-                {indicators_html}
-            </div>
-            <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;">
-                <div style="text-align:center;"><span style="color:#6C757D;font-size:0.72rem;">매출성장률</span>
-                    <div style="display:flex;gap:8px;margin-top:2px;">
-                        <div style="text-align:center;"><span style="color:#6C757D;font-size:0.65rem;">25E</span><br>{format_growth(rg25)}</div>
-                        <div style="text-align:center;"><span style="color:#6C757D;font-size:0.65rem;">26E</span><br>{format_growth(rg26)}</div>
-                        <div style="text-align:center;"><span style="color:#6C757D;font-size:0.65rem;">27E</span><br>{format_growth(rg27)}</div>
-                        <div style="text-align:center;"><span style="color:#6C757D;font-size:0.65rem;">28E</span><br>{format_growth(rg28)}</div>
-                    </div></div>
-                <div style="text-align:center;"><span style="color:#6C757D;font-size:0.72rem;">영업이익성장률</span>
-                    <div style="display:flex;gap:8px;margin-top:2px;">
-                        <div style="text-align:center;"><span style="color:#6C757D;font-size:0.65rem;">25E</span><br>{format_growth(og25)}</div>
-                        <div style="text-align:center;"><span style="color:#6C757D;font-size:0.65rem;">26E</span><br>{format_growth(og26)}</div>
-                        <div style="text-align:center;"><span style="color:#6C757D;font-size:0.65rem;">27E</span><br>{format_growth(og27)}</div>
-                        <div style="text-align:center;"><span style="color:#6C757D;font-size:0.65rem;">28E</span><br>{format_growth(og28)}</div>
-                    </div></div>
-                <div style="display:flex;gap:12px;align-items:center;">
-                    <div style="text-align:center;padding:6px 10px;background:#F8F9FA;border:1px solid #E9ECEF;border-radius:4px;">
-                        <span style="color:#6C757D;font-size:0.7rem;">가시성 P{row.get('미래가시성_순위', 5)}</span><br>
-                        <span style="color:#212529;font-family:'JetBrains Mono',monospace;font-weight:800;font-size:1.1rem;">{row.get('미래가시성_성장률',0):,.1f}%</span>
-                    </div>
-                    <div style="text-align:center;padding:6px 10px;background:#F8F9FA;border:1px solid #E9ECEF;border-radius:4px;">
-                        <span style="color:#6C757D;font-size:0.7rem;">종합점수</span><br>
-                        <span class="rainbow-score" style="font-family:'JetBrains Mono',monospace;font-weight:900;font-size:1.2rem;">{si2} {score:,.0f}</span>
-                    </div>
-                    <a href="{nurl}" target="_blank" class="naver-link" style="margin-left:4px;">
-                        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
-                        상세보기
-                    </a>
-                </div>
-            </div>
-        </div>
-        {evidence_html}
-    </div>""", unsafe_allow_html=True)
+    # ── 통계 라인 ──────────────────────────────────────────────
+    stats_html = (
+        f'<div style="display:flex;gap:22px;flex-wrap:wrap;margin-bottom:6px;align-items:flex-end;">'
+        f'<div><div class="qcd-stat-label">현재가</div>'
+        f'<div class="qcd-stat-val">{format_price(price)}</div></div>'
+        f'<div><div class="qcd-stat-label">거래량 / 거래대금</div>'
+        f'<div><span class="qcd-stat-val" style="font-size:0.95rem;">{format_volume(volume)}</span>'
+        f'<span style="color:#94A3B8;font-family:\'JetBrains Mono\',monospace;font-size:0.85rem;margin-left:4px;">'
+        f'/ {format_turnover(volume, price)}</span>'
+        f'<span style="font-size:0.82rem;margin-left:6px;">{vol_ratio_html}</span></div></div>'
+        f'<div><div class="qcd-stat-label">시가총액</div>'
+        f'<div class="qcd-stat-val" style="font-size:0.95rem;">{format_number(mcap)}</div></div>'
+        f'<div><div class="qcd-stat-label">데이터</div>'
+        f'<div style="color:#62EFFF;font-family:\'JetBrains Mono\',monospace;font-size:0.9rem;">{avail}</div></div>'
+        f'<div style="flex:1;"></div>'
+        f'<div style="text-align:center;padding:6px 12px;background:rgba(17,24,39,0.5);'
+        f'border:1px solid #4A5568;border-radius:8px;">'
+        f'<div class="qcd-stat-label">가시성 P{row.get("미래가시성_순위", 5)}</div>'
+        f'<div class="qcd-stat-val" style="font-size:1.05rem;">{row.get("미래가시성_성장률", 0):,.1f}%</div></div>'
+        f'<div style="text-align:center;padding:6px 12px;background:rgba(17,24,39,0.5);'
+        f'border:1px solid #4A5568;border-radius:8px;">'
+        f'<div class="qcd-stat-label">종합점수</div>'
+        f'<div class="rainbow-score" style="font-family:\'JetBrains Mono\',monospace;'
+        f'font-weight:900;font-size:1.1rem;">{si2} {score:,.0f}</div></div>'
+        f'</div>'
+    )
+
+    # ── 차트 박스 (성장률 라인차트) ────────────────────────────
+    chart_html = (
+        f'<div class="qcd-chart-box">'
+        f'<div class="qcd-chart-legend">'
+        f'<span><span class="dot" style="background:#34D399;"></span>매출 성장률</span>'
+        f'<span><span class="dot" style="background:#A78BFA;"></span>영업이익 성장률</span>'
+        f'</div>'
+        f'{chart_svg}'
+        f'</div>'
+    )
+
+    st.markdown(
+        f'<div class="quant-card-dark">'
+        f'{header_html}'
+        f'{stats_html}'
+        f'{chart_html}'
+        f'{pills_html}'
+        f'{tech_html}'
+        f'{evidence_html}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
 def main():
     if not check_password():
