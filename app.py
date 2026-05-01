@@ -1505,20 +1505,27 @@ def render_stock_card(row, rank):
     fwd_per_str = f'{fwd_per_val:.1f}' if pd.notna(fwd_per_val) else '-'
     peg_str     = f'{peg_val:.2f}' if pd.notna(peg_val) else '-'
 
-    # ── 성장률 라인차트 (SVG) ─────────────────────────────────
-    chart_svg = build_growth_svg(
-        [rg25, rg26, rg27, rg28],
-        [og25, og26, og27, og28],
-        ["'25E", "'26E", "'27E", "'28E"],
-    )
-
-    # ── 재무 소스 (단위: 억원) ────────────────────────────────
+    # ── 재무 소스 값 먼저 로드 (차트에서 '24 성장률 계산에 필요) ──
     rv23 = row.get('매출액_2023', np.nan); rv24 = row.get('매출액_2024', np.nan)
     rv25 = row.get('매출액_2025', np.nan); rv26 = row.get('매출액_2026', np.nan)
     rv27 = row.get('매출액_2027', np.nan); rv28 = row.get('매출액_2028', np.nan)
     ov23 = row.get('영업이익_2023', np.nan); ov24 = row.get('영업이익_2024', np.nan)
     ov25 = row.get('영업이익_2025', np.nan); ov26 = row.get('영업이익_2026', np.nan)
     ov27 = row.get('영업이익_2027', np.nan); ov28 = row.get('영업이익_2028', np.nan)
+
+    def _yoy(curr, base):
+        if pd.notna(curr) and pd.notna(base) and base != 0:
+            return ((curr - base) / abs(base)) * 100
+        return np.nan
+    rg24 = _yoy(rv24, rv23)
+    og24 = _yoy(ov24, ov23)
+
+    # ── 성장률 라인차트 (SVG) — '23 데이터 기준 '24부터 표시 ────
+    chart_svg = build_growth_svg(
+        [rg24, rg25, rg26, rg27, rg28],
+        [og24, og25, og26, og27, og28],
+        ["'24", "'25E", "'26E", "'27E", "'28E"],
+    )
 
     def fv(v):
         return '-' if pd.isna(v) else f'{v:,.0f}'
