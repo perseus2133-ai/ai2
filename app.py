@@ -315,7 +315,46 @@ div[data-testid="stVerticalBlock"] > div:has(div.element-container) {
 .quant-card-dark:hover {
     transform: translateY(-3px);
     box-shadow: 0 14px 32px rgba(0,0,0,0.40), 0 3px 8px rgba(0,0,0,0.25);
-    border-color: #62EFFF;
+    border-color: #1D3557;
+    background: linear-gradient(135deg, #FFFFFF 0%, #F8F9FA 100%);
+    color: #212529;
+}
+/* 호버 시 카드 내부 텍스트 라이트 테마 반전 */
+.quant-card-dark:hover .qcd-name { color: #111827; }
+.quant-card-dark:hover .qcd-code { color: #475569; }
+.quant-card-dark:hover .qcd-stat-label,
+.quant-card-dark:hover .qcd-tech-label,
+.quant-card-dark:hover .qcd-tech-item .k,
+.quant-card-dark:hover .qcd-pill .lbl,
+.quant-card-dark:hover .qcd-evidence .head { color: #475569; }
+.quant-card-dark:hover .qcd-stat-val,
+.quant-card-dark:hover .qcd-pill .val { color: #111827; }
+.quant-card-dark:hover .qcd-rank {
+    background: rgba(29, 53, 87, 0.08);
+    color: #1D3557;
+    border-color: rgba(29, 53, 87, 0.30);
+}
+.quant-card-dark:hover .qcd-pill {
+    background: #F8F9FA;
+    border-color: #E2E8F0;
+}
+.quant-card-dark:hover .qcd-pill.hi {
+    border-color: #1D3557;
+    box-shadow: 0 0 8px rgba(29,53,87,0.10) inset;
+}
+.quant-card-dark:hover .qcd-pill.hi .lbl,
+.quant-card-dark:hover .qcd-pill.hi .val { color: #1D3557; }
+.quant-card-dark:hover .qcd-chart-box,
+.quant-card-dark:hover .qcd-tech-box,
+.quant-card-dark:hover .qcd-evidence {
+    background: #F8F9FA;
+    border-color: #E2E8F0;
+}
+.quant-card-dark:hover .qcd-chart-legend { color: #475569; }
+.quant-card-dark:hover .qcd-naver-link {
+    background: rgba(29,53,87,0.06);
+    color: #1D3557 !important;
+    border-color: rgba(29,53,87,0.35);
 }
 .qcd-rank {
     background: rgba(98, 239, 255, 0.12);
@@ -354,8 +393,9 @@ div[data-testid="stVerticalBlock"] > div:has(div.element-container) {
     background: rgba(17, 24, 39, 0.45);
     border: 1px solid #4A5568;
     border-radius: 10px;
-    padding: 12px 14px 8px 14px;
-    margin: 14px 0;
+    padding: 8px 10px 4px 10px;
+    margin: 10px 0;
+    max-width: 440px;
 }
 .qcd-chart-legend { display:flex; gap:18px; align-items:center; font-size:0.75rem; color:#CBD5E0; margin-bottom:6px; }
 .qcd-chart-legend .dot { display:inline-block; width:10px; height:3px; border-radius:1px; margin-right:6px; vertical-align:middle; }
@@ -1223,9 +1263,9 @@ def format_turnover(volume, price):
 # ============================================================
 # 성장률 라인차트 (SVG, 카드 내부에 인라인 삽입)
 # ============================================================
-def build_growth_svg(rev_vals, op_vals, year_labels, width=560, height=170):
+def build_growth_svg(rev_vals, op_vals, year_labels, width=420, height=110):
     """매출/영업이익 성장률을 카드 내부에 그리는 SVG 라인차트."""
-    pad_l, pad_r, pad_t, pad_b = 38, 14, 32, 26
+    pad_l, pad_r, pad_t, pad_b = 32, 12, 24, 20
     inner_w = width - pad_l - pad_r
     inner_h = height - pad_t - pad_b
 
@@ -1617,11 +1657,11 @@ def render_stock_card(row, rank):
     # ── 차트 박스 (성장률 라인차트) ────────────────────────────
     chart_html = (
         f'<div class="qcd-chart-box">'
-        f'<div class="qcd-chart-legend">'
+        f'<div class="qcd-chart-legend" style="font-size:0.68rem;gap:12px;margin-bottom:2px;">'
         f'<span><span class="dot" style="background:#34D399;"></span>매출 성장률</span>'
         f'<span><span class="dot" style="background:#A78BFA;"></span>영업이익 성장률</span>'
         f'</div>'
-        f'{chart_svg}'
+        f'<div style="max-width:420px;">{chart_svg}</div>'
         f'</div>'
     )
 
