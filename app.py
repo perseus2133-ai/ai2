@@ -420,11 +420,15 @@ div[data-testid="stVerticalBlock"] > div:has(div.element-container) {
     border: 1px solid #4A5568;
     border-radius: 10px;
     padding: 10px 14px;
-    margin: 12px 0;
     display: flex;
-    align-items: center;
-    gap: 18px;
-    flex-wrap: wrap;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    flex: 1;
+    min-width: 200px;
+}
+.qcd-tech-row {
+    display:flex; align-items:center; gap:14px; flex-wrap:wrap;
 }
 .qcd-tech-label { color:#94A3B8; font-size:0.72rem; font-weight:600; letter-spacing:0.3px; }
 .qcd-tech-item { display:flex; flex-direction:column; gap:2px; }
@@ -1592,16 +1596,18 @@ def render_stock_card(row, rank):
     tech_html = (
         f'<div class="qcd-tech-box">'
         f'<div class="qcd-tech-label">📡 보조지표 분석</div>'
+        f'<div class="qcd-tech-row">'
         f'<div class="qcd-tech-item"><span class="k">OBV 추세</span>'
         f'<span class="v" style="color:{obv_color};">{obv_label}</span></div>'
         f'<div class="qcd-tech-item"><span class="k">RSI(14)</span>'
-        f'<span class="v" style="color:{rsi_color};">{rsi_str} <span style="font-size:0.78rem;color:#94A3B8;font-weight:600;">({rsi_zone})</span></span></div>'
-        f'<div style="flex:1;"></div>'
-        f'<div class="qcd-tech-item" style="text-align:right;">'
+        f'<span class="v" style="color:{rsi_color};">{rsi_str} '
+        f'<span style="font-size:0.74rem;color:#94A3B8;font-weight:600;">({rsi_zone})</span></span></div>'
+        f'</div>'
+        f'<div class="qcd-tech-item">'
         f'<span class="k">종합 판정</span>'
-        f'<span class="v" style="color:{verdict["color"]};font-size:1.05rem;">'
+        f'<span class="v" style="color:{verdict["color"]};font-size:1.0rem;">'
         f'{verdict["icon"]} {verdict["verdict"]}</span></div>'
-        f'<div style="flex-basis:100%;color:#94A3B8;font-size:0.72rem;margin-top:2px;">↳ {verdict["reason"]}</div>'
+        f'<div style="color:#94A3B8;font-size:0.7rem;line-height:1.4;">↳ {verdict["reason"]}</div>'
         f'</div>'
     )
 
@@ -1667,7 +1673,7 @@ def render_stock_card(row, rank):
 
     # ── 차트 박스 (성장률 라인차트) ────────────────────────────
     chart_html = (
-        f'<div class="qcd-chart-box">'
+        f'<div class="qcd-chart-box" style="flex:0 0 440px;margin:0;max-width:440px;">'
         f'<div class="qcd-chart-legend" style="font-size:0.68rem;gap:12px;margin-bottom:2px;">'
         f'<span><span class="dot" style="background:#34D399;"></span>매출 성장률</span>'
         f'<span><span class="dot" style="background:#A78BFA;"></span>영업이익 성장률</span>'
@@ -1676,13 +1682,19 @@ def render_stock_card(row, rank):
         f'</div>'
     )
 
+    # ── 차트 + 보조지표 좌/우 배치 ────────────────────────────
+    chart_tech_row = (
+        f'<div style="display:flex;gap:12px;margin:10px 0;flex-wrap:wrap;align-items:stretch;">'
+        f'{chart_html}{tech_html}'
+        f'</div>'
+    )
+
     st.markdown(
         f'<div class="quant-card-dark">'
         f'{header_html}'
         f'{stats_html}'
-        f'{chart_html}'
+        f'{chart_tech_row}'
         f'{pills_html}'
-        f'{tech_html}'
         f'{evidence_html}'
         f'</div>',
         unsafe_allow_html=True,
