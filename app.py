@@ -901,12 +901,14 @@ def get_daily_pv(stock_code, n_pages=2):
     return prices, volumes
 
 
-def calc_obv_rsi(prices, volumes):
-    """OBV 추세와 RSI(14)를 계산한다. prices/volumes는 최신순 입력."""
-    if len(prices) < 15:
+def calc_obv_rsi(prices, volumes, period=14):
+    """OBV 추세와 RSI(14)를 계산한다 (Wilder's smoothing 방식, 네이버와 동일)."""
+    if len(prices) < period + 1:
         return {}
-    p = list(reversed(prices))
+    p = list(reversed(prices))   # 시계열 순(과거→현재)
     v = list(reversed(volumes))
+
+    # ── OBV (단순 누적) ──────────────────────────────────────
     obv = [0]
     for i in range(1, len(p)):
         if p[i] > p[i - 1]:
@@ -924,30 +926,38 @@ def calc_obv_rsi(prices, volumes):
     else:
         obv_trend = 'flat'
 
+    # ── RSI (Wilder's smoothing) ─────────────────────────────
     gains, losses = [], []
     for i in range(1, len(p)):
         d = p[i] - p[i - 1]
-        gains.append(max(d, 0))
-        losses.append(max(-d, 0))
-    if len(gains) >= 14:
-        avg_gain = sum(gains[-14:]) / 14.0
-        avg_loss = sum(losses[-14:]) / 14.0
-        if avg_loss == 0:
-            rsi = 100.0 if avg_gain > 0 else 50.0
-        else:
-            rs = avg_gain / avg_loss
-            rsi = 100.0 - (100.0 / (1.0 + rs))
-        rsi = round(rsi, 1)
+        gains.append(max(d, 0.0))
+        losses.append(max(-d, 0.0))
+
+    if len(gains) < period:
+        return {'OBV_trend': obv_trend, 'RSI': np.nan}
+
+    # 1) 첫 period 동안의 단순평균으로 초기화
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+    # 2) 이후 EMA-like 가중평균 (Wilder)
+    for i in range(period, len(gains)):
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+
+    if avg_loss == 0:
+        rsi = 100.0 if avg_gain > 0 else 50.0
     else:
-        rsi = np.nan
-    return {'OBV_trend': obv_trend, 'RSI': rsi}
+        rs = avg_gain / avg_loss
+        rsi = 100.0 - (100.0 / (1.0 + rs))
+
+    return {'OBV_trend': obv_trend, 'RSI': round(rsi, 1)}
 
 
 def fetch_supplement_indicators(stock_code):
     """20일 평균 거래량 + OBV 추세 + RSI를 한 번에 계산한다."""
     out = {'평균거래량_20d': np.nan, 'OBV_trend': '', 'RSI': np.nan}
     try:
-        prices, volumes = get_daily_pv(stock_code, n_pages=2)
+        prices, volumes = get_daily_pv(stock_code, n_pages=6)
         if volumes:
             recent_vols = volumes[:20]
             if len(recent_vols) >= 3:
@@ -970,7 +980,7 @@ def get_avg_volume_20d(stock_code):
 def compute_obv_rsi_cached(stock_code):
     """렌더 시점 폴백용: 캐시에 OBV/RSI가 없으면 즉석에서 계산."""
     try:
-        prices, volumes = get_daily_pv(str(stock_code).zfill(6), n_pages=2)
+        prices, volumes = get_daily_pv(str(stock_code).zfill(6), n_pages=6)
         ind = calc_obv_rsi(prices, volumes)
         return {
             'OBV_trend': ind.get('OBV_trend', ''),

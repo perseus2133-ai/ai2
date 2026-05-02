@@ -304,9 +304,9 @@ def get_daily_pv(stock_code, n_pages=2):
     return prices, volumes
 
 
-def calc_obv_rsi(prices, volumes):
-    """OBV 추세 + RSI(14). 입력은 최신순."""
-    if len(prices) < 15:
+def calc_obv_rsi(prices, volumes, period=14):
+    """OBV 추세 + RSI(14) Wilder's smoothing. 입력은 최신순."""
+    if len(prices) < period + 1:
         return {}
     p = list(reversed(prices))
     v = list(reversed(volumes))
@@ -325,27 +325,29 @@ def calc_obv_rsi(prices, volumes):
     gains, losses = [], []
     for i in range(1, len(p)):
         d = p[i] - p[i - 1]
-        gains.append(max(d, 0))
-        losses.append(max(-d, 0))
-    if len(gains) >= 14:
-        avg_gain = sum(gains[-14:]) / 14.0
-        avg_loss = sum(losses[-14:]) / 14.0
-        if avg_loss == 0:
-            rsi = 100.0 if avg_gain > 0 else 50.0
-        else:
-            rs = avg_gain / avg_loss
-            rsi = 100.0 - (100.0 / (1.0 + rs))
-        rsi = round(rsi, 1)
+        gains.append(max(d, 0.0))
+        losses.append(max(-d, 0.0))
+    if len(gains) < period:
+        return {'OBV_trend': obv_trend, 'RSI': np.nan}
+    # Wilder 초기화 + 누적 EMA
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+    for i in range(period, len(gains)):
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+    if avg_loss == 0:
+        rsi = 100.0 if avg_gain > 0 else 50.0
     else:
-        rsi = np.nan
-    return {'OBV_trend': obv_trend, 'RSI': rsi}
+        rs = avg_gain / avg_loss
+        rsi = 100.0 - (100.0 / (1.0 + rs))
+    return {'OBV_trend': obv_trend, 'RSI': round(rsi, 1)}
 
 
 def fetch_supplement_indicators(stock_code):
     """20일 평균 거래량 + OBV 추세 + RSI를 한 번에 계산한다."""
     out = {'평균거래량_20d': np.nan, 'OBV_trend': '', 'RSI': np.nan}
     try:
-        prices, volumes = get_daily_pv(stock_code, n_pages=2)
+        prices, volumes = get_daily_pv(stock_code, n_pages=6)
         if volumes:
             recent_vols = volumes[:20]
             if len(recent_vols) >= 3:
