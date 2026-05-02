@@ -326,7 +326,6 @@ div[data-testid="stVerticalBlock"] > div:has(div.element-container) {
 .quant-card-dark:hover .qcd-tech-label,
 .quant-card-dark:hover .qcd-tech-item .k,
 .quant-card-dark:hover .qcd-pill .lbl,
-.quant-card-dark:hover .qcd-pill .sub,
 .quant-card-dark:hover .qcd-evidence .head,
 .quant-card-dark:hover .qcd-verdict-reason,
 .quant-card-dark:hover .qcd-level-line .lk,
@@ -484,11 +483,6 @@ div[data-testid="stVerticalBlock"] > div:has(div.element-container) {
     font-family: 'JetBrains Mono', monospace; font-size: 0.7rem;
     color: #CBD5E0; text-align: center; margin-top: 1px;
 }
-.qcd-pill .sub {
-    color: #94A3B8; font-size: 0.65rem; margin-top: 2px;
-    font-family: 'JetBrains Mono', monospace; font-weight: 600;
-}
-.qcd-pill.hi .sub { color: rgba(98,239,255,0.75); }
 .qcd-tech-row {
     display:flex; align-items:center; gap:14px; flex-wrap:wrap;
 }
@@ -1769,17 +1763,17 @@ def render_stock_card(row, rank):
         f'</div>'
     )
 
-    # ── 5개 지표 pill (Fwd PER, ROE는 highlight) ───────────────
-    def pill(label, val, hi=False, sub=None):
+    # ── 6개 지표 pill (Fwd PER, ROE는 highlight) ───────────────
+    def pill(label, val, hi=False):
         cls = 'qcd-pill hi' if hi else 'qcd-pill'
-        sub_html = f'<div class="sub">{sub}</div>' if sub else ''
-        return f'<div class="{cls}"><div class="lbl">{label}</div><div class="val">{val}</div>{sub_html}</div>'
+        return f'<div class="{cls}"><div class="lbl">{label}</div><div class="val">{val}</div></div>'
 
-    sec_per_sub = f'업종 {sector_per:.1f}' if pd.notna(sector_per) else '업종 -'
+    sec_per_str = f'{sector_per:.1f}' if pd.notna(sector_per) else '-'
     pills_html = (
         f'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px;align-items:flex-start;">'
         + pill('PER (TTM)', per_str)
-        + pill('Forward PER', fwd_per_str, hi=True, sub=sec_per_sub)
+        + pill('Forward PER', fwd_per_str, hi=True)
+        + pill('업종 PER', sec_per_str)
         + pill('PBR', pbr_str)
         + pill('PEG', peg_str)
         + pill('ROE', roe_str, hi=True)
