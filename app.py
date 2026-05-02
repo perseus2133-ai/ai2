@@ -326,7 +326,9 @@ div[data-testid="stVerticalBlock"] > div:has(div.element-container) {
 .quant-card-dark:hover .qcd-tech-label,
 .quant-card-dark:hover .qcd-tech-item .k,
 .quant-card-dark:hover .qcd-pill .lbl,
-.quant-card-dark:hover .qcd-evidence .head { color: #475569; }
+.quant-card-dark:hover .qcd-evidence .head,
+.quant-card-dark:hover .qcd-verdict-reason { color: #475569; }
+.quant-card-dark:hover .qcd-tech-right { border-left-color: #E2E8F0; }
 .quant-card-dark:hover .qcd-stat-val,
 .quant-card-dark:hover .qcd-pill .val { color: #111827; }
 .quant-card-dark:hover .qcd-rank {
@@ -419,16 +421,48 @@ div[data-testid="stVerticalBlock"] > div:has(div.element-container) {
     background: rgba(17, 24, 39, 0.45);
     border: 1px solid #4A5568;
     border-radius: 10px;
-    padding: 10px 14px;
+    padding: 12px 16px;
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     align-items: stretch;
-    gap: 8px;
+    gap: 16px;
     flex: 1;
     min-width: 200px;
 }
+.qcd-tech-left {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    justify-content: center;
+}
+.qcd-tech-right {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 4px;
+    padding-left: 14px;
+    border-left: 1px solid rgba(74, 85, 104, 0.6);
+    min-width: 140px;
+    text-align: right;
+}
 .qcd-tech-row {
     display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+}
+.qcd-verdict-big {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 800;
+    font-size: 1.45rem;
+    line-height: 1.1;
+}
+.qcd-verdict-reason {
+    color: #94A3B8;
+    font-size: 0.72rem;
+    line-height: 1.4;
+    text-align: right;
+    margin-top: 2px;
 }
 .qcd-tech-label { color:#94A3B8; font-size:0.72rem; font-weight:600; letter-spacing:0.3px; }
 .qcd-tech-item { display:flex; flex-direction:column; gap:2px; }
@@ -1595,6 +1629,7 @@ def render_stock_card(row, rank):
 
     tech_html = (
         f'<div class="qcd-tech-box">'
+        f'<div class="qcd-tech-left">'
         f'<div class="qcd-tech-label">📡 보조지표 분석</div>'
         f'<div class="qcd-tech-row">'
         f'<div class="qcd-tech-item"><span class="k">OBV 추세</span>'
@@ -1603,11 +1638,13 @@ def render_stock_card(row, rank):
         f'<span class="v" style="color:{rsi_color};">{rsi_str} '
         f'<span style="font-size:0.74rem;color:#94A3B8;font-weight:600;">({rsi_zone})</span></span></div>'
         f'</div>'
-        f'<div class="qcd-tech-item">'
-        f'<span class="k">종합 판정</span>'
-        f'<span class="v" style="color:{verdict["color"]};font-size:1.0rem;">'
-        f'{verdict["icon"]} {verdict["verdict"]}</span></div>'
-        f'<div style="color:#94A3B8;font-size:0.7rem;line-height:1.4;">↳ {verdict["reason"]}</div>'
+        f'</div>'
+        f'<div class="qcd-tech-right">'
+        f'<span class="k" style="color:#94A3B8;font-size:0.72rem;font-weight:600;">종합 판정</span>'
+        f'<span class="qcd-verdict-big" style="color:{verdict["color"]};">'
+        f'{verdict["icon"]} {verdict["verdict"]}</span>'
+        f'<span class="qcd-verdict-reason">↳ {verdict["reason"]}</span>'
+        f'</div>'
         f'</div>'
     )
 
