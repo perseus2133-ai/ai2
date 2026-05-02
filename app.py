@@ -440,7 +440,7 @@ div[data-testid="stVerticalBlock"] > div:has(div.element-container) {
     border: 1px solid #4A5568;
     border-radius: 10px;
     padding: 10px 14px;
-    margin-top: 10px;
+    margin: 0;
 }
 .qcd-evidence .head { color:#94A3B8; font-size:0.7rem; font-weight:600; margin-bottom:6px; }
 .qcd-naver-link {
@@ -1673,19 +1673,25 @@ def render_stock_card(row, rank):
 
     # ── 차트 박스 (성장률 라인차트) ────────────────────────────
     chart_html = (
-        f'<div class="qcd-chart-box" style="flex:0 0 440px;margin:0;max-width:440px;">'
+        f'<div class="qcd-chart-box" style="margin:0;height:100%;display:flex;flex-direction:column;">'
         f'<div class="qcd-chart-legend" style="font-size:0.68rem;gap:12px;margin-bottom:2px;">'
         f'<span><span class="dot" style="background:#34D399;"></span>매출 성장률</span>'
         f'<span><span class="dot" style="background:#A78BFA;"></span>영업이익 성장률</span>'
         f'</div>'
-        f'<div style="max-width:420px;">{chart_svg}</div>'
+        f'<div style="flex:1;display:flex;align-items:center;">{chart_svg}</div>'
         f'</div>'
     )
 
-    # ── 차트 + 보조지표 좌/우 배치 ────────────────────────────
-    chart_tech_row = (
+    # ── 좌(재무소스+보조지표) / 우(그래프) 2열 그리드 ──────────
+    main_grid = (
         f'<div style="display:flex;gap:12px;margin:10px 0;flex-wrap:wrap;align-items:stretch;">'
-        f'{chart_html}{tech_html}'
+        f'<div style="flex:1 1 320px;min-width:280px;display:flex;flex-direction:column;gap:10px;">'
+        f'{evidence_html}'
+        f'{tech_html}'
+        f'</div>'
+        f'<div style="flex:0 1 440px;min-width:300px;max-width:460px;">'
+        f'{chart_html}'
+        f'</div>'
         f'</div>'
     )
 
@@ -1693,9 +1699,8 @@ def render_stock_card(row, rank):
         f'<div class="quant-card-dark">'
         f'{header_html}'
         f'{stats_html}'
-        f'{chart_tech_row}'
         f'{pills_html}'
-        f'{evidence_html}'
+        f'{main_grid}'
         f'</div>',
         unsafe_allow_html=True,
     )
