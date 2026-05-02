@@ -737,8 +737,12 @@ button[data-baseweb="tab"][aria-selected="true"] > div[data-testid="stMarkdownCo
 # 상수 & 크롤링 함수
 # ============================================================
 HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    'Accept-Language': 'ko-KR,ko;q=0.9',
+    'User-Agent': ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                   'AppleWebKit/537.36 (KHTML, like Gecko) '
+                   'Chrome/124.0.0.0 Safari/537.36'),
+    'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Accept': ('text/html,application/xhtml+xml,application/xml;q=0.9,'
+               'image/avif,image/webp,*/*;q=0.8'),
 }
 
 thread_local = threading.local()
@@ -866,13 +870,26 @@ def parse_numeric(text):
     except: return np.nan
 
 def scrape_fnguide_supplement(stock_code, stock_name=''):
-    """FnGuide에서 2026E, 2027E, 2028E 컨센서스 데이터를 보조로 가져온다."""
+    """FnGuide에서 2026E, 2027E, 2028E 컨센서스 데이터를 보조로 가져온다.
+    FnGuide는 응답이 무거워서 timeout 넉넉히 + 1회 재시도.
+    """
+    session = get_session()
+    url = f'https://comp.fnguide.com/SVO2/ASP/SVD_Main.asp?pGB=1&gicode=A{stock_code}'
+    resp = None
+    for attempt in (1, 2):
+        try:
+            resp = session.get(url, timeout=15)
+            if resp.status_code == 200:
+                break
+        except Exception:
+            resp = None
+            if attempt == 2:
+                return {}
+            time.sleep(0.4)
+    if resp is None or resp.status_code != 200:
+        return {}
     try:
-        session = get_session()
-        url = f'https://comp.fnguide.com/SVO2/ASP/SVD_Main.asp?pGB=1&gicode=A{stock_code}'
-        resp = session.get(url, timeout=7)
         resp.encoding = 'utf-8'
-        if resp.status_code != 200: return {}
         soup = BeautifulSoup(resp.text, 'lxml')
 
         page_name = ''
