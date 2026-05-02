@@ -1710,31 +1710,114 @@ def build_growth_svg(rev_vals, op_vals, year_labels, width=420, height=130):
     )
 
 
-def obv_rsi_verdict(obv_trend, rsi):
-    """OBV 추세 + RSI 조합으로 적정성 판단."""
-    if (not obv_trend or obv_trend == '') and (rsi is None or pd.isna(rsi)):
-        return {'verdict': '데이터 없음', 'color': '#94A3B8', 'icon': '·', 'reason': '기술 지표 미수집'}
-    if pd.isna(rsi):
-        return {'verdict': '판단 보류', 'color': '#94A3B8', 'icon': '·', 'reason': 'RSI 데이터 부족'}
+def obv_rsi_verdict(obv_trend, rsi, macd_signal=''):
+    """OBV + RSI + MACD 3종 동시 판정.
+    우선순위: ① 트리플 동행 → ② 추세 전환 동행 → ③ 다이버전스
+            → ④ RSI 극단 → ⑤ 일반 추세 → ⑥ 점수 기반 fallback.
+    """
+    obv_known  = isinstance(obv_trend, str) and obv_trend != ''
+    rsi_known  = pd.notna(rsi)
+    macd_known = isinstance(macd_signal, str) and macd_signal in (
+        'bull_cross', 'bear_cross', 'bull', 'bear'
+    )
+    if not (obv_known or rsi_known or macd_known):
+        return {'verdict': '데이터 없음', 'color': '#94A3B8', 'icon': '·',
+                'reason': '기술 지표 미수집'}
+
     obv_up = obv_trend == 'up'
     obv_dn = obv_trend == 'down'
-    if rsi >= 70 and obv_up:
-        return {'verdict': '과열 주의', 'color': '#F59E0B', 'icon': '⚠', 'reason': 'RSI 과매수 + 매집 (단기 차익실현 구간)'}
-    if rsi >= 70 and not obv_up:
-        return {'verdict': '고점 신호', 'color': '#EF4444', 'icon': '▼', 'reason': 'RSI 과매수 + OBV 하락 (다이버전스)'}
-    if rsi <= 30 and obv_up:
-        return {'verdict': '저평가 매수', 'color': '#10B981', 'icon': '★', 'reason': 'RSI 과매도 + OBV 매집 (반등 가능)'}
-    if rsi <= 30 and not obv_up:
-        return {'verdict': '약세 관망', 'color': '#94A3B8', 'icon': '⏳', 'reason': 'RSI 과매도 + OBV 분산 (추세 확인)'}
-    if obv_up and rsi >= 50:
-        return {'verdict': '상승 추세', 'color': '#10B981', 'icon': '▲', 'reason': 'OBV 매집 + RSI 강세 (적정)'}
-    if obv_up and rsi < 50:
-        return {'verdict': '매집 진행', 'color': '#34D399', 'icon': '↗', 'reason': 'OBV 상승 (수급 양호)'}
-    if obv_dn and rsi >= 50:
-        return {'verdict': '추세 약화', 'color': '#F59E0B', 'icon': '↘', 'reason': 'RSI 강세이나 OBV 분산'}
-    if obv_dn:
-        return {'verdict': '분산 진행', 'color': '#EF4444', 'icon': '▽', 'reason': 'OBV 하락 (수급 약화)'}
-    return {'verdict': '중립', 'color': '#62EFFF', 'icon': '·', 'reason': '특별한 시그널 없음'}
+
+    rsi_over  = rsi_known and rsi >= 70   # 과매수
+    rsi_under = rsi_known and rsi <= 30   # 과매도
+    rsi_bull  = rsi_known and 50 <= rsi < 70
+    rsi_bear  = rsi_known and 30 < rsi < 50
+
+    macd_gc   = macd_signal == 'bull_cross'   # 골든크로스
+    macd_dc   = macd_signal == 'bear_cross'   # 데드크로스
+    macd_bull = macd_signal == 'bull'         # 상승 진행
+    macd_bear = macd_signal == 'bear'         # 하락 진행
+
+    # ── ① 트리플 동행 (최강 신호) ───────────────────────────
+    if macd_gc and rsi_under and obv_up:
+        return {'verdict': '바닥 매수', 'color': '#10B981', 'icon': '🚀',
+                'reason': '골든크로스 + 과매도 + OBV 매집 (트리플 매수)'}
+    if macd_dc and rsi_over and obv_dn:
+        return {'verdict': '고점 매도', 'color': '#EF4444', 'icon': '💀',
+                'reason': '데드크로스 + 과매수 + OBV 분산 (트리플 매도)'}
+
+    # ── ② 추세 전환 (크로스 + RSI/OBV 동행) ─────────────────
+    if macd_gc and (rsi_bull or rsi_under) and obv_up:
+        return {'verdict': '추세 확정', 'color': '#10B981', 'icon': '💎',
+                'reason': '골든크로스 + RSI 강세 + OBV 매집 (강한 상승 추세 진입)'}
+    if macd_dc and (rsi_bear or rsi_over) and obv_dn:
+        return {'verdict': '추세 붕괴', 'color': '#EF4444', 'icon': '🔻',
+                'reason': '데드크로스 + RSI 약세 + OBV 분산 (하락 추세 진입)'}
+    if macd_gc and obv_up:
+        return {'verdict': '매수 진입', 'color': '#34D399', 'icon': '✦',
+                'reason': '골든크로스 + OBV 매집 (단기 진입 신호)'}
+    if macd_dc and obv_dn:
+        return {'verdict': '매도 진입', 'color': '#F87171', 'icon': '✦',
+                'reason': '데드크로스 + OBV 분산 (단기 이탈 신호)'}
+
+    # ── ③ 다이버전스 (수급 vs 추세 불일치) ───────────────────
+    if (macd_bear or macd_dc) and obv_up:
+        return {'verdict': '강세 다이버전스', 'color': '#34D399', 'icon': '🔄',
+                'reason': 'MACD 약세이지만 OBV 매집 (반등 가능성)'}
+    if (macd_bull or macd_gc) and obv_dn:
+        return {'verdict': '약세 다이버전스', 'color': '#F59E0B', 'icon': '⚠',
+                'reason': 'MACD 강세이지만 OBV 분산 (가짜 신호 주의)'}
+
+    # ── ④ RSI 극단 + MACD 보강 ──────────────────────────────
+    if rsi_over and (macd_bull or macd_gc) and obv_up:
+        return {'verdict': '과열 주의', 'color': '#F59E0B', 'icon': '🔥',
+                'reason': 'RSI 과매수 + MACD 강세 + 매집 (차익실현 검토)'}
+    if rsi_over and (macd_bear or macd_dc):
+        return {'verdict': '고점 신호', 'color': '#EF4444', 'icon': '▼',
+                'reason': 'RSI 과매수 + MACD 약세 (단기 조정 위험)'}
+    if rsi_under and (macd_bull or macd_gc):
+        return {'verdict': '저평가 매수', 'color': '#10B981', 'icon': '★',
+                'reason': 'RSI 과매도 + MACD 강세 (반등 진입 시점)'}
+    if rsi_under and (macd_bear or macd_dc):
+        return {'verdict': '약세 관망', 'color': '#94A3B8', 'icon': '⏳',
+                'reason': 'RSI 과매도 + MACD 약세 (반등 신호 대기)'}
+
+    # ── ④' RSI 극단 단독 (MACD 신호 없을 때) ─────────────────
+    if rsi_over and not (macd_bull or macd_gc or macd_bear or macd_dc):
+        return {'verdict': '과열 경계', 'color': '#F59E0B', 'icon': '⚠',
+                'reason': 'RSI 과매수 (단기 차익실현 검토)'}
+    if rsi_under and not (macd_bull or macd_gc or macd_bear or macd_dc):
+        return {'verdict': '저점 경계', 'color': '#34D399', 'icon': '★',
+                'reason': 'RSI 과매도 (반등 시점 모색)'}
+
+    # ── ⑤ 일반 추세 (3지표 일관 동행) ───────────────────────
+    if (macd_bull or macd_gc) and rsi_bull and obv_up:
+        return {'verdict': '상승 추세', 'color': '#10B981', 'icon': '📈',
+                'reason': 'MACD·RSI·OBV 모두 강세 (정석 보유)'}
+    if (macd_bear or macd_dc) and rsi_bear and obv_dn:
+        return {'verdict': '하락 추세', 'color': '#EF4444', 'icon': '📉',
+                'reason': 'MACD·RSI·OBV 모두 약세 (손절선 점검)'}
+
+    # ── ⑥ 점수 기반 fallback ────────────────────────────────
+    obv_s  = 1 if obv_up  else (-1 if obv_dn  else 0)
+    rsi_s  = 1 if (rsi_bull or rsi_over)  else (-1 if (rsi_bear or rsi_under) else 0)
+    macd_s = 2 if macd_gc else (1 if macd_bull else
+             (-2 if macd_dc else (-1 if macd_bear else 0)))
+    total  = obv_s + rsi_s + macd_s   # range: -4 ~ +4
+
+    if total >= 3:
+        return {'verdict': '강세 우위', 'color': '#34D399', 'icon': '↗',
+                'reason': f'3지표 종합 +{total} (강세 우위)'}
+    if total >= 1:
+        return {'verdict': '매집 진행', 'color': '#34D399', 'icon': '▲',
+                'reason': f'3지표 종합 +{total} (수급 양호)'}
+    if total <= -3:
+        return {'verdict': '약세 우위', 'color': '#F87171', 'icon': '↘',
+                'reason': f'3지표 종합 {total} (약세 우위)'}
+    if total <= -1:
+        return {'verdict': '분산 진행', 'color': '#EF4444', 'icon': '▽',
+                'reason': f'3지표 종합 {total} (수급 약화)'}
+    return {'verdict': '중립', 'color': '#62EFFF', 'icon': '·',
+            'reason': '특별한 시그널 없음'}
 
 # ============================================================
 # 접근 제어 (비밀번호)
@@ -1848,7 +1931,7 @@ def render_stock_card(row, rank):
     # ── 컨센서스 변경 추세 (1M) ─────────────────────────────────
     revision = calc_consensus_revision(code_str, row)
 
-    verdict = obv_rsi_verdict(obv_trend, rsi_val)
+    verdict = obv_rsi_verdict(obv_trend, rsi_val, macd_signal)
 
     # ── 거래량 폭증 배수 표시 ─────────────────────────────────
     if pd.notna(vol_ratio):
