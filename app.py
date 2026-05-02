@@ -326,9 +326,15 @@ div[data-testid="stVerticalBlock"] > div:has(div.element-container) {
 .quant-card-dark:hover .qcd-tech-label,
 .quant-card-dark:hover .qcd-tech-item .k,
 .quant-card-dark:hover .qcd-pill .lbl,
+.quant-card-dark:hover .qcd-pill .sub,
 .quant-card-dark:hover .qcd-evidence .head,
-.quant-card-dark:hover .qcd-verdict-reason { color: #475569; }
+.quant-card-dark:hover .qcd-verdict-reason,
+.quant-card-dark:hover .qcd-level-line .lk,
+.quant-card-dark:hover .qcd-level-pos { color: #475569; }
+.quant-card-dark:hover .qcd-tech-mid,
 .quant-card-dark:hover .qcd-tech-right { border-left-color: #E2E8F0; }
+.quant-card-dark:hover .qcd-level-bar { background-color: #E5E7EB; }
+.quant-card-dark:hover .qcd-level-marker { background: #1D3557; box-shadow: 0 0 5px rgba(29,53,87,0.45); }
 .quant-card-dark:hover .qcd-stat-val,
 .quant-card-dark:hover .qcd-pill .val { color: #111827; }
 .quant-card-dark:hover .qcd-rank {
@@ -436,6 +442,16 @@ div[data-testid="stVerticalBlock"] > div:has(div.element-container) {
     gap: 8px;
     justify-content: center;
 }
+.qcd-tech-mid {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    padding: 0 14px;
+    border-left: 1px solid rgba(74, 85, 104, 0.6);
+    min-width: 150px;
+}
 .qcd-tech-right {
     flex: 0 0 auto;
     display: flex;
@@ -448,6 +464,31 @@ div[data-testid="stVerticalBlock"] > div:has(div.element-container) {
     min-width: 140px;
     text-align: right;
 }
+.qcd-level-line {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-family: 'JetBrains Mono', monospace; font-size: 0.84rem;
+}
+.qcd-level-line .lk { color: #94A3B8; font-size: 0.7rem; font-weight: 600; }
+.qcd-level-line .lv { font-weight: 700; }
+.qcd-level-bar {
+    height: 5px; background: rgba(74, 85, 104, 0.4);
+    border-radius: 3px; position: relative; margin: 5px 0 2px 0;
+    background-image: linear-gradient(to right, rgba(52,211,153,0.45) 0%, rgba(251,191,36,0.45) 50%, rgba(248,113,113,0.45) 100%);
+}
+.qcd-level-marker {
+    position: absolute; top: -3px; width: 3px; height: 11px;
+    background: #FFFFFF; border-radius: 1px;
+    box-shadow: 0 0 5px rgba(0,0,0,0.55);
+}
+.qcd-level-pos {
+    font-family: 'JetBrains Mono', monospace; font-size: 0.7rem;
+    color: #CBD5E0; text-align: center; margin-top: 1px;
+}
+.qcd-pill .sub {
+    color: #94A3B8; font-size: 0.65rem; margin-top: 2px;
+    font-family: 'JetBrains Mono', monospace; font-weight: 600;
+}
+.qcd-pill.hi .sub { color: rgba(98,239,255,0.75); }
 .qcd-tech-row {
     display:flex; align-items:center; gap:14px; flex-wrap:wrap;
 }
@@ -953,9 +994,21 @@ def calc_obv_rsi(prices, volumes, period=14):
     return {'OBV_trend': obv_trend, 'RSI': round(rsi, 1)}
 
 
+def calc_support_resistance(prices, lookback=60):
+    """최근 N일 종가에서 단순 지지선/저항선 추정."""
+    if not prices:
+        return {}
+    recent = prices[:lookback]
+    return {
+        '저항선': max(recent),
+        '지지선': min(recent),
+    }
+
+
 def fetch_supplement_indicators(stock_code):
-    """20일 평균 거래량 + OBV 추세 + RSI를 한 번에 계산한다."""
-    out = {'평균거래량_20d': np.nan, 'OBV_trend': '', 'RSI': np.nan}
+    """20일 평균 거래량 + OBV + RSI + 지지/저항선을 한 번에 계산한다."""
+    out = {'평균거래량_20d': np.nan, 'OBV_trend': '', 'RSI': np.nan,
+           '저항선': np.nan, '지지선': np.nan}
     try:
         prices, volumes = get_daily_pv(stock_code, n_pages=6)
         if volumes:
@@ -966,6 +1019,9 @@ def fetch_supplement_indicators(stock_code):
         if ind:
             out['OBV_trend'] = ind.get('OBV_trend', '')
             out['RSI'] = ind.get('RSI', np.nan)
+        sr = calc_support_resistance(prices)
+        out['저항선'] = sr.get('저항선', np.nan)
+        out['지지선'] = sr.get('지지선', np.nan)
     except:
         pass
     return out
@@ -978,16 +1034,21 @@ def get_avg_volume_20d(stock_code):
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def compute_obv_rsi_cached(stock_code):
-    """렌더 시점 폴백용: 캐시에 OBV/RSI가 없으면 즉석에서 계산."""
+    """렌더 시점 폴백용: 캐시에 보조지표가 없을 때 즉석 계산.
+    OBV/RSI/지지선/저항선까지 한 번에 반환.
+    """
+    out = {'OBV_trend': '', 'RSI': np.nan, '저항선': np.nan, '지지선': np.nan}
     try:
         prices, volumes = get_daily_pv(str(stock_code).zfill(6), n_pages=6)
         ind = calc_obv_rsi(prices, volumes)
-        return {
-            'OBV_trend': ind.get('OBV_trend', ''),
-            'RSI': ind.get('RSI', np.nan),
-        }
+        out['OBV_trend'] = ind.get('OBV_trend', '')
+        out['RSI'] = ind.get('RSI', np.nan)
+        sr = calc_support_resistance(prices)
+        out['저항선'] = sr.get('저항선', np.nan)
+        out['지지선'] = sr.get('지지선', np.nan)
     except:
-        return {'OBV_trend': '', 'RSI': np.nan}
+        pass
+    return out
 
 
 def scrape_naver_consensus(stock_code, stock_name):
@@ -1094,16 +1155,20 @@ def scrape_naver_consensus(stock_code, stock_name):
             result['PBR'] = np.nan
             result['ROE'] = np.nan
 
-        # 20일 평균 거래량 + OBV/RSI 수집
+        # 20일 평균 거래량 + OBV/RSI + 지지/저항선 수집
         try:
             sup = fetch_supplement_indicators(stock_code)
             result['평균거래량_20d'] = sup.get('평균거래량_20d', np.nan)
             result['OBV_trend']     = sup.get('OBV_trend', '')
             result['RSI']           = sup.get('RSI', np.nan)
+            result['저항선']         = sup.get('저항선', np.nan)
+            result['지지선']         = sup.get('지지선', np.nan)
         except:
             result['평균거래량_20d'] = np.nan
             result['OBV_trend']     = ''
             result['RSI']           = np.nan
+            result['저항선']         = np.nan
+            result['지지선']         = np.nan
 
         return result
     except Exception as e:
@@ -1524,16 +1589,26 @@ def render_stock_card(row, rank):
     badge = f'<span class="{badge_cls}">{market}</span>'
     si2 = "⭐" if score >= 500 else "▪"
 
-    # ── OBV/RSI: 캐시에 없으면 즉석 계산 ────────────────────────
-    obv_trend = row.get('OBV_trend', '')
-    rsi_val   = row.get('RSI', np.nan)
-    if (not isinstance(obv_trend, str) or obv_trend == '') or pd.isna(rsi_val):
+    # ── OBV/RSI/지지/저항: 캐시에 없으면 즉석 계산 ──────────────
+    obv_trend   = row.get('OBV_trend', '')
+    rsi_val     = row.get('RSI', np.nan)
+    resistance  = row.get('저항선', np.nan)
+    support     = row.get('지지선', np.nan)
+    need_fetch = (
+        (not isinstance(obv_trend, str) or obv_trend == '')
+        or pd.isna(rsi_val) or pd.isna(resistance) or pd.isna(support)
+    )
+    if need_fetch:
         try:
             ind = compute_obv_rsi_cached(code_str)
             if not isinstance(obv_trend, str) or obv_trend == '':
                 obv_trend = ind.get('OBV_trend', '')
             if pd.isna(rsi_val):
                 rsi_val = ind.get('RSI', np.nan)
+            if pd.isna(resistance):
+                resistance = ind.get('저항선', np.nan)
+            if pd.isna(support):
+                support = ind.get('지지선', np.nan)
         except:
             pass
 
@@ -1637,6 +1712,41 @@ def render_stock_card(row, rank):
         else:
             rsi_zone = '중립'; rsi_color = '#62EFFF'
 
+    # ── 가격 레벨 (60일 지지/저항선, 현재가 위치) ────────────
+    if pd.notna(resistance) and pd.notna(support) and resistance > support:
+        cur_for_pos = price if (price and price > 0) else resistance
+        pos_pct = max(0.0, min(100.0, (cur_for_pos - support) / (resistance - support) * 100.0))
+        if pos_pct >= 80:
+            pos_color = '#F87171'; pos_zone = '저항 근접'
+        elif pos_pct <= 20:
+            pos_color = '#34D399'; pos_zone = '지지 근접'
+        else:
+            pos_color = '#FBBF24'; pos_zone = '구간 내'
+        res_str = f'{int(resistance):,}'
+        sup_str = f'{int(support):,}'
+        cur_str = f'{int(cur_for_pos):,}'
+        level_html = (
+            f'<div class="qcd-tech-mid">'
+            f'<div class="qcd-tech-label">📊 60일 가격 레벨</div>'
+            f'<div class="qcd-level-line"><span class="lk">저항</span>'
+            f'<span class="lv" style="color:#F87171;">{res_str}</span></div>'
+            f'<div class="qcd-level-line"><span class="lk">지지</span>'
+            f'<span class="lv" style="color:#34D399;">{sup_str}</span></div>'
+            f'<div class="qcd-level-bar">'
+            f'<div class="qcd-level-marker" style="left:calc({pos_pct:.1f}% - 1.5px);"></div>'
+            f'</div>'
+            f'<div class="qcd-level-pos">현재 <b style="color:{pos_color};">{cur_str}</b> '
+            f'· <b style="color:{pos_color};">{pos_pct:.0f}%</b> ({pos_zone})</div>'
+            f'</div>'
+        )
+    else:
+        level_html = (
+            f'<div class="qcd-tech-mid">'
+            f'<div class="qcd-tech-label">📊 60일 가격 레벨</div>'
+            f'<div class="qcd-level-pos" style="text-align:left;">데이터 없음</div>'
+            f'</div>'
+        )
+
     tech_html = (
         f'<div class="qcd-tech-box">'
         f'<div class="qcd-tech-left">'
@@ -1649,6 +1759,7 @@ def render_stock_card(row, rank):
         f'<span style="font-size:0.74rem;color:#94A3B8;font-weight:600;">({rsi_zone})</span></span></div>'
         f'</div>'
         f'</div>'
+        f'{level_html}'
         f'<div class="qcd-tech-right">'
         f'<span class="k" style="color:#94A3B8;font-size:0.72rem;font-weight:600;">종합 판정</span>'
         f'<span class="qcd-verdict-big" style="color:{verdict["color"]};">'
@@ -1659,14 +1770,16 @@ def render_stock_card(row, rank):
     )
 
     # ── 5개 지표 pill (Fwd PER, ROE는 highlight) ───────────────
-    def pill(label, val, hi=False):
+    def pill(label, val, hi=False, sub=None):
         cls = 'qcd-pill hi' if hi else 'qcd-pill'
-        return f'<div class="{cls}"><div class="lbl">{label}</div><div class="val">{val}</div></div>'
+        sub_html = f'<div class="sub">{sub}</div>' if sub else ''
+        return f'<div class="{cls}"><div class="lbl">{label}</div><div class="val">{val}</div>{sub_html}</div>'
 
+    sec_per_sub = f'업종 {sector_per:.1f}' if pd.notna(sector_per) else '업종 -'
     pills_html = (
-        f'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px;">'
+        f'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px;align-items:flex-start;">'
         + pill('PER (TTM)', per_str)
-        + pill('Forward PER', fwd_per_str, hi=True)
+        + pill('Forward PER', fwd_per_str, hi=True, sub=sec_per_sub)
         + pill('PBR', pbr_str)
         + pill('PEG', peg_str)
         + pill('ROE', roe_str, hi=True)

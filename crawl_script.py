@@ -343,9 +343,18 @@ def calc_obv_rsi(prices, volumes, period=14):
     return {'OBV_trend': obv_trend, 'RSI': round(rsi, 1)}
 
 
+def calc_support_resistance(prices, lookback=60):
+    """최근 N일 종가에서 지지선/저항선 추정."""
+    if not prices:
+        return {}
+    recent = prices[:lookback]
+    return {'저항선': max(recent), '지지선': min(recent)}
+
+
 def fetch_supplement_indicators(stock_code):
-    """20일 평균 거래량 + OBV 추세 + RSI를 한 번에 계산한다."""
-    out = {'평균거래량_20d': np.nan, 'OBV_trend': '', 'RSI': np.nan}
+    """20일 평균 거래량 + OBV + RSI + 지지/저항선을 한 번에 계산한다."""
+    out = {'평균거래량_20d': np.nan, 'OBV_trend': '', 'RSI': np.nan,
+           '저항선': np.nan, '지지선': np.nan}
     try:
         prices, volumes = get_daily_pv(stock_code, n_pages=6)
         if volumes:
@@ -356,6 +365,9 @@ def fetch_supplement_indicators(stock_code):
         if ind:
             out['OBV_trend'] = ind.get('OBV_trend', '')
             out['RSI'] = ind.get('RSI', np.nan)
+        sr = calc_support_resistance(prices)
+        out['저항선'] = sr.get('저항선', np.nan)
+        out['지지선'] = sr.get('지지선', np.nan)
     except:
         pass
     return out
@@ -470,16 +482,20 @@ def scrape_naver_consensus(stock_code, stock_name):
             result['PBR'] = np.nan
             result['ROE'] = np.nan
 
-        # 20일 평균 거래량 + OBV/RSI 수집
+        # 20일 평균 거래량 + OBV/RSI + 지지/저항선 수집
         try:
             sup = fetch_supplement_indicators(stock_code)
             result['평균거래량_20d'] = sup.get('평균거래량_20d', np.nan)
             result['OBV_trend']     = sup.get('OBV_trend', '')
             result['RSI']           = sup.get('RSI', np.nan)
+            result['저항선']         = sup.get('저항선', np.nan)
+            result['지지선']         = sup.get('지지선', np.nan)
         except:
             result['평균거래량_20d'] = np.nan
             result['OBV_trend']     = ''
             result['RSI']           = np.nan
+            result['저항선']         = np.nan
+            result['지지선']         = np.nan
 
         return result
     except:
