@@ -31,6 +31,7 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 CSV_FILE  = os.path.join(DATA_DIR, "consensus_data.csv")
 META_FILE = os.path.join(DATA_DIR, "meta.json")
 HISTORY_DIR = os.path.join(DATA_DIR, "history")
+SNAPSHOT_DIR = os.path.join(DATA_DIR, "consensus_snapshots")
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(HISTORY_DIR, exist_ok=True)
@@ -351,10 +352,88 @@ def calc_support_resistance(prices, lookback=60):
     return {'저항선': max(recent), '지지선': min(recent)}
 
 
+def calc_ma_alignment(prices, periods=(5, 20, 60)):
+    """이평선 정/역배열 판정."""
+    if not prices or len(prices) < max(periods):
+        return ''
+    p = list(reversed(prices))
+    mas = [sum(p[-n:]) / n for n in periods]
+    if mas[0] > mas[1] > mas[2]: return 'up'
+    if mas[0] < mas[1] < mas[2]: return 'down'
+    return 'mixed'
+
+
+def _ema(values, n):
+    if not values: return []
+    k = 2.0 / (n + 1.0)
+    e = values[0]; out = [e]
+    for v in values[1:]:
+        e = v * k + e * (1.0 - k); out.append(e)
+    return out
+
+
+def calc_macd_signal(prices, fast=12, slow=26, sig=9):
+    """MACD 상태."""
+    if not prices or len(prices) < slow + sig: return ''
+    p = list(reversed(prices))
+    ema_f = _ema(p, fast); ema_s = _ema(p, slow)
+    macd = [f - s for f, s in zip(ema_f, ema_s)]
+    sigl = _ema(macd, sig)
+    if len(macd) < 2: return ''
+    if macd[-2] <= sigl[-2] and macd[-1] > sigl[-1]: return 'bull_cross'
+    if macd[-2] >= sigl[-2] and macd[-1] < sigl[-1]: return 'bear_cross'
+    if macd[-1] > sigl[-1]: return 'bull'
+    if macd[-1] < sigl[-1]: return 'bear'
+    return ''
+
+
+def scrape_foreign_inst(stock_code):
+    """네이버 외인·기관 일별 순매매 (단위: 주). 5일/20일 누적."""
+    out = {'외인_5d': np.nan, '외인_20d': np.nan,
+           '기관_5d': np.nan, '기관_20d': np.nan}
+    foreign_buys, inst_buys = [], []
+    try:
+        session = get_session()
+        for page in (1, 2):
+            url = f'https://finance.naver.com/item/frgn.naver?code={stock_code}&page={page}'
+            resp = session.get(url, timeout=6)
+            resp.encoding = 'euc-kr'
+            soup = BeautifulSoup(resp.text, 'lxml')
+            table = soup.find('table', class_='type2')
+            if not table: break
+            page_added = 0
+            for row in table.find_all('tr'):
+                cells = row.find_all('td')
+                if len(cells) < 9: continue
+                date_text = cells[0].get_text(strip=True)
+                if not re.match(r'\d{4}\.\d{2}\.\d{2}', date_text):
+                    continue
+                try:
+                    f_text = cells[5].get_text(strip=True).replace(',', '').replace('+', '')
+                    i_text = cells[8].get_text(strip=True).replace(',', '').replace('+', '')
+                    f_val = int(f_text) if f_text not in ('', '-') else 0
+                    i_val = int(i_text) if i_text not in ('', '-') else 0
+                except (ValueError, IndexError):
+                    continue
+                foreign_buys.append(f_val); inst_buys.append(i_val); page_added += 1
+            if page_added == 0: break
+        if foreign_buys:
+            out['외인_5d']  = sum(foreign_buys[:5])
+            out['외인_20d'] = sum(foreign_buys[:20])
+            out['기관_5d']  = sum(inst_buys[:5])
+            out['기관_20d'] = sum(inst_buys[:20])
+    except:
+        pass
+    return out
+
+
 def fetch_supplement_indicators(stock_code):
-    """20일 평균 거래량 + OBV + RSI + 지지/저항선을 한 번에 계산한다."""
+    """20일 평균 거래량 + OBV + RSI + 지지/저항선 + MA/MACD + 외인/기관 수급."""
     out = {'평균거래량_20d': np.nan, 'OBV_trend': '', 'RSI': np.nan,
-           '저항선': np.nan, '지지선': np.nan}
+           '저항선': np.nan, '지지선': np.nan,
+           'MA_align': '', 'MACD_signal': '',
+           '외인_5d': np.nan, '외인_20d': np.nan,
+           '기관_5d': np.nan, '기관_20d': np.nan}
     try:
         prices, volumes = get_daily_pv(stock_code, n_pages=6)
         if volumes:
@@ -364,10 +443,16 @@ def fetch_supplement_indicators(stock_code):
         ind = calc_obv_rsi(prices, volumes)
         if ind:
             out['OBV_trend'] = ind.get('OBV_trend', '')
-            out['RSI'] = ind.get('RSI', np.nan)
+            out['RSI']       = ind.get('RSI', np.nan)
         sr = calc_support_resistance(prices)
         out['저항선'] = sr.get('저항선', np.nan)
         out['지지선'] = sr.get('지지선', np.nan)
+        out['MA_align']    = calc_ma_alignment(prices)
+        out['MACD_signal'] = calc_macd_signal(prices)
+    except:
+        pass
+    try:
+        out.update(scrape_foreign_inst(stock_code))
     except:
         pass
     return out
@@ -482,24 +567,53 @@ def scrape_naver_consensus(stock_code, stock_name):
             result['PBR'] = np.nan
             result['ROE'] = np.nan
 
-        # 20일 평균 거래량 + OBV/RSI + 지지/저항선 수집
+        # 보조지표·수급 통합 수집
         try:
             sup = fetch_supplement_indicators(stock_code)
-            result['평균거래량_20d'] = sup.get('평균거래량_20d', np.nan)
-            result['OBV_trend']     = sup.get('OBV_trend', '')
-            result['RSI']           = sup.get('RSI', np.nan)
-            result['저항선']         = sup.get('저항선', np.nan)
-            result['지지선']         = sup.get('지지선', np.nan)
+            for k in ['평균거래량_20d', 'OBV_trend', 'RSI', '저항선', '지지선',
+                      'MA_align', 'MACD_signal',
+                      '외인_5d', '외인_20d', '기관_5d', '기관_20d']:
+                result[k] = sup.get(k, '' if k in ('OBV_trend','MA_align','MACD_signal') else np.nan)
         except:
-            result['평균거래량_20d'] = np.nan
-            result['OBV_trend']     = ''
-            result['RSI']           = np.nan
-            result['저항선']         = np.nan
-            result['지지선']         = np.nan
+            for k in ['평균거래량_20d', 'RSI', '저항선', '지지선',
+                      '외인_5d', '외인_20d', '기관_5d', '기관_20d']:
+                result[k] = np.nan
+            for k in ['OBV_trend', 'MA_align', 'MACD_signal']:
+                result[k] = ''
 
         return result
     except:
         return None
+
+
+# ============================================================
+# 컨센서스 스냅샷 저장 (Estimates Revision 분석용)
+# ============================================================
+def save_consensus_snapshot(df):
+    """오늘자 컨센서스 추정치를 날짜별 JSON으로 저장."""
+    if df is None or df.empty:
+        return
+    os.makedirs(SNAPSHOT_DIR, exist_ok=True)
+    today = now_kst().strftime('%Y-%m-%d')
+    path = os.path.join(SNAPSHOT_DIR, f'{today}.json')
+    cols = [f'{m}_{y}' for m in ('매출액', '영업이익') for y in (2025, 2026, 2027, 2028)]
+    snap = {}
+    for _, row in df.iterrows():
+        code = str(row.get('종목코드', '')).zfill(6)
+        if not code or code == '000000':
+            continue
+        entry = {}
+        for c in cols:
+            v = row.get(c, np.nan)
+            if pd.notna(v):
+                entry[c] = float(v)
+        if entry:
+            snap[code] = entry
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(snap, f, ensure_ascii=False)
+    except:
+        pass
 
 
 # ============================================================
@@ -696,6 +810,10 @@ def main():
     # 4단계: 누적 기록 저장
     print("4단계: 누적 기록 저장...")
     save_history(df)
+
+    # 5단계: 컨센서스 스냅샷 저장 (Estimates Revision 분석용)
+    print("5단계: 컨센서스 스냅샷 저장...")
+    save_consensus_snapshot(df)
 
     print(f"[{now_kst()}] ✅ 전체 완료!")
 

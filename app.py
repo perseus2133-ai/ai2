@@ -48,6 +48,7 @@ CSV_FILE  = os.path.join(DATA_DIR, "consensus_data.csv")
 META_FILE = os.path.join(DATA_DIR, "meta.json")
 HISTORY_DIR = os.path.join(DATA_DIR, "history")
 HISTORY_DIR = os.path.join(DATA_DIR, "history")
+SNAPSHOT_DIR = os.path.join(DATA_DIR, "consensus_snapshots")
 
 def now_kst():
     return datetime.datetime.now(KST)
@@ -207,6 +208,98 @@ def load_history():
         return {}
     with open(history_file, 'r', encoding='utf-8') as f:
         return json.load(f)
+
+
+# ============================================================
+# 컨센서스 스냅샷 (Estimates Revision 분석용)
+# ============================================================
+_REV_YEARS = [2025, 2026, 2027, 2028]
+_REV_COLS  = [f'{m}_{y}' for m in ('매출액', '영업이익') for y in _REV_YEARS]
+
+
+def save_consensus_snapshot(df):
+    """오늘자 컨센서스 추정치를 날짜별 JSON으로 저장 (1개월 후 비교용)."""
+    if df is None or df.empty:
+        return
+    os.makedirs(SNAPSHOT_DIR, exist_ok=True)
+    today = now_kst().strftime('%Y-%m-%d')
+    path  = os.path.join(SNAPSHOT_DIR, f'{today}.json')
+    snap  = {}
+    for _, row in df.iterrows():
+        code = str(row.get('종목코드', '')).zfill(6)
+        if not code or code == '000000':
+            continue
+        entry = {}
+        for c in _REV_COLS:
+            v = row.get(c, np.nan)
+            if pd.notna(v):
+                entry[c] = float(v)
+        if entry:
+            snap[code] = entry
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(snap, f, ensure_ascii=False)
+    except:
+        pass
+
+
+@st.cache_data(ttl=21600, show_spinner=False)
+def load_old_consensus_snapshot(target_days_ago=30):
+    """target_days_ago 일 근처의 가장 가까운 스냅샷을 로드 (7~60일 범위)."""
+    if not os.path.exists(SNAPSHOT_DIR):
+        return {}
+    today  = now_kst().date()
+    target = today - datetime.timedelta(days=target_days_ago)
+    best, best_diff = None, None
+    for fn in os.listdir(SNAPSHOT_DIR):
+        if not fn.endswith('.json'):
+            continue
+        try:
+            d = datetime.datetime.strptime(fn[:-5], '%Y-%m-%d').date()
+        except:
+            continue
+        age = (today - d).days
+        if not (7 <= age <= 60):
+            continue
+        diff = abs((d - target).days)
+        if best_diff is None or diff < best_diff:
+            best, best_diff = fn, diff
+    if not best:
+        return {}
+    try:
+        with open(os.path.join(SNAPSHOT_DIR, best), 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return {'snapshot_date': best[:-5], 'data': data}
+    except:
+        return {}
+
+
+def calc_consensus_revision(stock_code, current_row):
+    """1개월 전 스냅샷 대비 26E 매출/영업이익 컨센 변화율(%) 계산."""
+    snap = load_old_consensus_snapshot(30)
+    if not snap or 'data' not in snap:
+        return None
+    code = str(stock_code).zfill(6)
+    old = snap['data'].get(code)
+    if not old:
+        return None
+
+    def _pct(curr, prev):
+        if pd.isna(curr) or prev is None or prev == 0:
+            return np.nan
+        return ((float(curr) - float(prev)) / abs(float(prev))) * 100.0
+
+    rev_changes = {}
+    for y in (2026, 2025):  # 26E 우선, 없으면 25E
+        r = _pct(current_row.get(f'매출액_{y}'),  old.get(f'매출액_{y}'))
+        o = _pct(current_row.get(f'영업이익_{y}'), old.get(f'영업이익_{y}'))
+        if pd.notna(r) or pd.notna(o):
+            rev_changes['year']  = y
+            rev_changes['rev']   = r
+            rev_changes['op']    = o
+            rev_changes['date']  = snap.get('snapshot_date', '')
+            return rev_changes
+    return None
 
 
 def build_history_excel():
@@ -999,10 +1092,108 @@ def calc_support_resistance(prices, lookback=60):
     }
 
 
+def calc_ma_alignment(prices, periods=(5, 20, 60)):
+    """이평선 정배열/역배열 판정. prices는 최신순 입력."""
+    if not prices or len(prices) < max(periods):
+        return ''
+    p = list(reversed(prices))
+    mas = [sum(p[-n:]) / n for n in periods]
+    # 정배열: 단기 > 중기 > 장기
+    if mas[0] > mas[1] > mas[2]:
+        return 'up'
+    if mas[0] < mas[1] < mas[2]:
+        return 'down'
+    return 'mixed'
+
+
+def _ema(values, n):
+    if not values:
+        return []
+    k = 2.0 / (n + 1.0)
+    e = values[0]
+    out = [e]
+    for v in values[1:]:
+        e = v * k + e * (1.0 - k)
+        out.append(e)
+    return out
+
+
+def calc_macd_signal(prices, fast=12, slow=26, sig=9):
+    """MACD 상태: 'bull_cross' / 'bear_cross' / 'bull' / 'bear' / ''."""
+    if not prices or len(prices) < slow + sig:
+        return ''
+    p = list(reversed(prices))
+    ema_f = _ema(p, fast)
+    ema_s = _ema(p, slow)
+    macd  = [f - s for f, s in zip(ema_f, ema_s)]
+    sigl  = _ema(macd, sig)
+    if len(macd) < 2:
+        return ''
+    m_prev, m_now = macd[-2], macd[-1]
+    s_prev, s_now = sigl[-2], sigl[-1]
+    if m_prev <= s_prev and m_now > s_now:
+        return 'bull_cross'
+    if m_prev >= s_prev and m_now < s_now:
+        return 'bear_cross'
+    if m_now > s_now:
+        return 'bull'
+    if m_now < s_now:
+        return 'bear'
+    return ''
+
+
+def scrape_foreign_inst(stock_code):
+    """네이버 외국인·기관 일별 순매매 (단위: 주). 5일/20일 누적 순매수."""
+    out = {'외인_5d': np.nan, '외인_20d': np.nan,
+           '기관_5d': np.nan, '기관_20d': np.nan}
+    foreign_buys, inst_buys = [], []
+    try:
+        session = get_session()
+        for page in (1, 2):
+            url = f'https://finance.naver.com/item/frgn.naver?code={stock_code}&page={page}'
+            resp = session.get(url, timeout=6)
+            resp.encoding = 'euc-kr'
+            soup = BeautifulSoup(resp.text, 'lxml')
+            table = soup.find('table', class_='type2')
+            if not table:
+                break
+            page_added = 0
+            for row in table.find_all('tr'):
+                cells = row.find_all('td')
+                if len(cells) < 9:
+                    continue
+                date_text = cells[0].get_text(strip=True)
+                if not re.match(r'\d{4}\.\d{2}\.\d{2}', date_text):
+                    continue
+                try:
+                    f_text = cells[5].get_text(strip=True).replace(',', '').replace('+', '')
+                    i_text = cells[8].get_text(strip=True).replace(',', '').replace('+', '')
+                    f_val = int(f_text) if f_text not in ('', '-') else 0
+                    i_val = int(i_text) if i_text not in ('', '-') else 0
+                except (ValueError, IndexError):
+                    continue
+                foreign_buys.append(f_val)
+                inst_buys.append(i_val)
+                page_added += 1
+            if page_added == 0:
+                break
+        if foreign_buys:
+            out['외인_5d']  = sum(foreign_buys[:5])
+            out['외인_20d'] = sum(foreign_buys[:20])
+            out['기관_5d']  = sum(inst_buys[:5])
+            out['기관_20d'] = sum(inst_buys[:20])
+    except:
+        pass
+    return out
+
+
 def fetch_supplement_indicators(stock_code):
-    """20일 평균 거래량 + OBV + RSI + 지지/저항선을 한 번에 계산한다."""
+    """20일 평균 거래량 + OBV + RSI + 지지/저항선 + MA/MACD + 외인·기관 수급."""
     out = {'평균거래량_20d': np.nan, 'OBV_trend': '', 'RSI': np.nan,
-           '저항선': np.nan, '지지선': np.nan}
+           '저항선': np.nan, '지지선': np.nan,
+           'MA_align': '', 'MACD_signal': '',
+           '외인_5d': np.nan, '외인_20d': np.nan,
+           '기관_5d': np.nan, '기관_20d': np.nan}
     try:
         prices, volumes = get_daily_pv(stock_code, n_pages=6)
         if volumes:
@@ -1016,6 +1207,13 @@ def fetch_supplement_indicators(stock_code):
         sr = calc_support_resistance(prices)
         out['저항선'] = sr.get('저항선', np.nan)
         out['지지선'] = sr.get('지지선', np.nan)
+        out['MA_align']    = calc_ma_alignment(prices)
+        out['MACD_signal'] = calc_macd_signal(prices)
+    except:
+        pass
+    try:
+        fi = scrape_foreign_inst(stock_code)
+        out.update(fi)
     except:
         pass
     return out
@@ -1028,10 +1226,9 @@ def get_avg_volume_20d(stock_code):
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def compute_obv_rsi_cached(stock_code):
-    """렌더 시점 폴백용: 캐시에 보조지표가 없을 때 즉석 계산.
-    OBV/RSI/지지선/저항선까지 한 번에 반환.
-    """
-    out = {'OBV_trend': '', 'RSI': np.nan, '저항선': np.nan, '지지선': np.nan}
+    """렌더 시점 폴백 (가격 기반 지표): OBV/RSI/지지/저항/MA/MACD."""
+    out = {'OBV_trend': '', 'RSI': np.nan, '저항선': np.nan, '지지선': np.nan,
+           'MA_align': '', 'MACD_signal': ''}
     try:
         prices, volumes = get_daily_pv(str(stock_code).zfill(6), n_pages=6)
         ind = calc_obv_rsi(prices, volumes)
@@ -1040,9 +1237,21 @@ def compute_obv_rsi_cached(stock_code):
         sr = calc_support_resistance(prices)
         out['저항선'] = sr.get('저항선', np.nan)
         out['지지선'] = sr.get('지지선', np.nan)
+        out['MA_align']    = calc_ma_alignment(prices)
+        out['MACD_signal'] = calc_macd_signal(prices)
     except:
         pass
     return out
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_foreign_inst_cached(stock_code):
+    """렌더 시점 폴백 (수급): 외인·기관 5일/20일 누적 순매수."""
+    try:
+        return scrape_foreign_inst(str(stock_code).zfill(6))
+    except:
+        return {'외인_5d': np.nan, '외인_20d': np.nan,
+                '기관_5d': np.nan, '기관_20d': np.nan}
 
 
 def scrape_naver_consensus(stock_code, stock_name):
@@ -1149,7 +1358,7 @@ def scrape_naver_consensus(stock_code, stock_name):
             result['PBR'] = np.nan
             result['ROE'] = np.nan
 
-        # 20일 평균 거래량 + OBV/RSI + 지지/저항선 수집
+        # 20일 평균 거래량 + OBV/RSI + 지지/저항선 + MA/MACD + 외인·기관 수급
         try:
             sup = fetch_supplement_indicators(stock_code)
             result['평균거래량_20d'] = sup.get('평균거래량_20d', np.nan)
@@ -1157,12 +1366,18 @@ def scrape_naver_consensus(stock_code, stock_name):
             result['RSI']           = sup.get('RSI', np.nan)
             result['저항선']         = sup.get('저항선', np.nan)
             result['지지선']         = sup.get('지지선', np.nan)
+            result['MA_align']      = sup.get('MA_align', '')
+            result['MACD_signal']   = sup.get('MACD_signal', '')
+            result['외인_5d']        = sup.get('외인_5d', np.nan)
+            result['외인_20d']       = sup.get('외인_20d', np.nan)
+            result['기관_5d']        = sup.get('기관_5d', np.nan)
+            result['기관_20d']       = sup.get('기관_20d', np.nan)
         except:
-            result['평균거래량_20d'] = np.nan
-            result['OBV_trend']     = ''
-            result['RSI']           = np.nan
-            result['저항선']         = np.nan
-            result['지지선']         = np.nan
+            for k in ['평균거래량_20d', 'RSI', '저항선', '지지선',
+                      '외인_5d', '외인_20d', '기관_5d', '기관_20d']:
+                result[k] = np.nan
+            for k in ['OBV_trend', 'MA_align', 'MACD_signal']:
+                result[k] = ''
 
         return result
     except Exception as e:
@@ -1226,8 +1441,9 @@ def crawl_all_data(progress_bar, status_text, markets, max_workers):
     meta = {'markets': markets, 'total_analyzed': total, 'data_count': len(results)}
     save_cache(df, meta)
 
-    # 누적 기록 저장
+    # 누적 기록 + 컨센서스 스냅샷 저장 (Estimates Revision 분석용)
     save_history(df)
+    save_consensus_snapshot(df)
 
     status_text.markdown(f"✅ **완료!** {len(results)}개 종목 데이터 수집 → 캐시 저장됨")
     return df
@@ -1583,14 +1799,18 @@ def render_stock_card(row, rank):
     badge = f'<span class="{badge_cls}">{market}</span>'
     si2 = "⭐" if score >= 500 else "▪"
 
-    # ── OBV/RSI/지지/저항: 캐시에 없으면 즉석 계산 ──────────────
+    # ── OBV/RSI/지지/저항/MA/MACD: 캐시에 없으면 즉석 계산 ─────
     obv_trend   = row.get('OBV_trend', '')
     rsi_val     = row.get('RSI', np.nan)
     resistance  = row.get('저항선', np.nan)
     support     = row.get('지지선', np.nan)
+    ma_align    = row.get('MA_align', '')
+    macd_signal = row.get('MACD_signal', '')
     need_fetch = (
         (not isinstance(obv_trend, str) or obv_trend == '')
         or pd.isna(rsi_val) or pd.isna(resistance) or pd.isna(support)
+        or (not isinstance(ma_align, str) or ma_align == '')
+        or (not isinstance(macd_signal, str) or macd_signal == '')
     )
     if need_fetch:
         try:
@@ -1603,8 +1823,30 @@ def render_stock_card(row, rank):
                 resistance = ind.get('저항선', np.nan)
             if pd.isna(support):
                 support = ind.get('지지선', np.nan)
+            if not isinstance(ma_align, str) or ma_align == '':
+                ma_align = ind.get('MA_align', '')
+            if not isinstance(macd_signal, str) or macd_signal == '':
+                macd_signal = ind.get('MACD_signal', '')
         except:
             pass
+
+    # ── 외인·기관 5d/20d 순매수: 캐시에 없으면 즉석 계산 ────────
+    foreign_5d  = row.get('외인_5d', np.nan)
+    foreign_20d = row.get('외인_20d', np.nan)
+    inst_5d     = row.get('기관_5d', np.nan)
+    inst_20d    = row.get('기관_20d', np.nan)
+    if pd.isna(foreign_5d) and pd.isna(inst_5d):
+        try:
+            fi = fetch_foreign_inst_cached(code_str)
+            foreign_5d  = fi.get('외인_5d', np.nan)
+            foreign_20d = fi.get('외인_20d', np.nan)
+            inst_5d     = fi.get('기관_5d', np.nan)
+            inst_20d    = fi.get('기관_20d', np.nan)
+        except:
+            pass
+
+    # ── 컨센서스 변경 추세 (1M) ─────────────────────────────────
+    revision = calc_consensus_revision(code_str, row)
 
     verdict = obv_rsi_verdict(obv_trend, rsi_val)
 
@@ -1660,6 +1902,30 @@ def render_stock_card(row, rank):
     cc = 'flex:1;text-align:right;padding:2px 6px;'
     ce = 'flex:1;text-align:right;padding:2px 6px;font-weight:700;'
 
+    # ── 컨센 변경(1M) 한 줄: 스냅샷 있을 때만 표시 ──────────────
+    revision_line = ''
+    if revision:
+        def _rev_chip(v, label):
+            if pd.isna(v):
+                return ''
+            color = '#34D399' if v > 0 else ('#F87171' if v < 0 else '#94A3B8')
+            arrow = '▲' if v > 0 else ('▼' if v < 0 else '·')
+            return (
+                f'<span style="color:#94A3B8;font-size:0.72rem;margin-right:3px;">{label}</span>'
+                f'<span style="color:{color};font-family:\'JetBrains Mono\',monospace;'
+                f'font-weight:700;font-size:0.78rem;margin-right:10px;">{arrow} {v:+.1f}%</span>'
+            )
+        chips = _rev_chip(revision.get('rev'), '매출') + _rev_chip(revision.get('op'), '영업이익')
+        if chips:
+            yr = revision.get('year')
+            revision_line = (
+                f'<div style="margin-top:6px;padding-top:6px;border-top:1px dashed rgba(74,85,104,0.5);'
+                f'display:flex;align-items:center;flex-wrap:wrap;gap:4px;">'
+                f'<span style="color:#94A3B8;font-size:0.7rem;font-weight:600;margin-right:6px;">'
+                f'📈 컨센 변경 (1M, {yr}E)</span>{chips}'
+                f'</div>'
+            )
+
     evidence_html = (
         f'<div class="qcd-evidence">'
         f'<div class="head">재무 소스 (단위: 억원)</div>'
@@ -1684,7 +1950,9 @@ def render_stock_card(row, rank):
         f'<div style="{ce}color:{fv_color(ov26)};">{fv(ov26)}</div>'
         f'<div style="{ce}color:{fv_color(ov27)};">{fv(ov27)}</div>'
         f'<div style="{ce}color:{fv_color(ov28)};">{fv(ov28)}</div></div>'
-        f'</div></div>'
+        f'</div>'
+        f'{revision_line}'
+        f'</div>'
     )
 
     # ── OBV / RSI 박스 ─────────────────────────────────────────
@@ -1741,6 +2009,23 @@ def render_stock_card(row, rank):
             f'</div>'
         )
 
+    # ── 이평선 정배열 / MACD 라벨 ──────────────────────────────
+    ma_map = {
+        'up':    ('정배열 ▲',  '#34D399'),
+        'down':  ('역배열 ▽',  '#F87171'),
+        'mixed': ('혼조 →',     '#94A3B8'),
+        '':      ('-',         '#64748B'),
+    }
+    macd_map = {
+        'bull_cross': ('골든크로스 ✦', '#34D399'),
+        'bear_cross': ('데드크로스 ✦', '#F87171'),
+        'bull':       ('상승 ↗',       '#34D399'),
+        'bear':       ('하락 ↘',       '#F87171'),
+        '':           ('-',            '#64748B'),
+    }
+    ma_label,   ma_color   = ma_map.get(ma_align, ma_map[''])
+    macd_label, macd_color = macd_map.get(macd_signal, macd_map[''])
+
     tech_html = (
         f'<div class="qcd-tech-box">'
         f'<div class="qcd-tech-left">'
@@ -1751,6 +2036,12 @@ def render_stock_card(row, rank):
         f'<div class="qcd-tech-item"><span class="k">RSI(14)</span>'
         f'<span class="v" style="color:{rsi_color};">{rsi_str} '
         f'<span style="font-size:0.74rem;color:#94A3B8;font-weight:600;">({rsi_zone})</span></span></div>'
+        f'</div>'
+        f'<div class="qcd-tech-row">'
+        f'<div class="qcd-tech-item"><span class="k">이평 (5/20/60)</span>'
+        f'<span class="v" style="color:{ma_color};">{ma_label}</span></div>'
+        f'<div class="qcd-tech-item"><span class="k">MACD (12/26/9)</span>'
+        f'<span class="v" style="color:{macd_color};">{macd_label}</span></div>'
         f'</div>'
         f'</div>'
         f'{level_html}'
@@ -1798,6 +2089,37 @@ def render_stock_card(row, rank):
         f'</div>'
     )
 
+    # ── 외인·기관 순매수 포맷 (주 → 억원) ────────────────────
+    def _flow_fmt(shares_5d, shares_20d):
+        if pd.isna(shares_5d) and pd.isna(shares_20d):
+            return '<span style="color:#64748B;">-</span>', '#94A3B8'
+        def _to_won_str(s):
+            if pd.isna(s) or s == 0: return '0'
+            won = s * (price if (price and price > 0) else 0)
+            sign = '+' if s > 0 else '−'
+            absw = abs(won)
+            if absw >= 100_000_000:
+                return f'{sign}{absw/100_000_000:.1f}억'
+            if absw >= 10_000_000:
+                return f'{sign}{absw/10_000_000:.0f}천만'
+            return f'{sign}{abs(int(s)):,}주'
+        s5 = _to_won_str(shares_5d) if pd.notna(shares_5d) else '-'
+        s20 = _to_won_str(shares_20d) if pd.notna(shares_20d) else '-'
+        # 5일 기준 색상
+        if pd.notna(shares_5d):
+            color = '#FCA5A5' if shares_5d > 0 else ('#93C5FD' if shares_5d < 0 else '#94A3B8')
+        else:
+            color = '#94A3B8'
+        return (
+            f'<span style="color:{color};font-family:\'JetBrains Mono\',monospace;'
+            f'font-weight:700;font-size:0.95rem;">{s5}</span>'
+            f'<span style="color:#94A3B8;font-family:\'JetBrains Mono\',monospace;'
+            f'font-size:0.78rem;margin-left:4px;">/ 20d {s20}</span>'
+        ), color
+
+    foreign_html, _ = _flow_fmt(foreign_5d, foreign_20d)
+    inst_html, _    = _flow_fmt(inst_5d, inst_20d)
+
     # ── 통계 라인 ──────────────────────────────────────────────
     stats_html = (
         f'<div style="display:flex;gap:22px;flex-wrap:wrap;margin-bottom:6px;align-items:flex-end;">'
@@ -1810,6 +2132,10 @@ def render_stock_card(row, rank):
         f'<span style="font-size:0.82rem;margin-left:6px;">{vol_ratio_html}</span></div></div>'
         f'<div><div class="qcd-stat-label">시가총액</div>'
         f'<div class="qcd-stat-val" style="font-size:0.95rem;">{format_number(mcap)}</div></div>'
+        f'<div><div class="qcd-stat-label">외인 순매수 (5d)</div>'
+        f'<div>{foreign_html}</div></div>'
+        f'<div><div class="qcd-stat-label">기관 순매수 (5d)</div>'
+        f'<div>{inst_html}</div></div>'
         f'<div><div class="qcd-stat-label">데이터</div>'
         f'<div style="color:#62EFFF;font-family:\'JetBrains Mono\',monospace;font-size:0.9rem;">{avail}</div></div>'
         f'<div style="flex:1;"></div>'
