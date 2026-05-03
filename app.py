@@ -1404,8 +1404,13 @@ def scrape_naver_consensus(stock_code, stock_name):
 # ============================================================
 # 크롤링 (데이터 수집만 - 캐시 저장)
 # ============================================================
-def crawl_all_data(progress_bar, status_text, markets, max_workers):
-    """전종목 컨센서스 데이터를 크롤링하고 캐시에 저장한다."""
+def crawl_all_data(progress_bar, status_text, markets, max_workers, resume=True):
+    """전종목 컨센서스 데이터를 크롤링하고 캐시에 저장한다.
+
+    Args:
+        resume: True면 기존 캐시에 27E/28E가 채워진 종목은 건너뛰고
+                빠진 것만 새로 수집. 중간에 멈춰도 이어서 가능.
+    """
     status_text.markdown("⏳ **1단계:** 종목 리스트 수집 중...")
     progress_bar.progress(0.02)
     dfs = []
@@ -1419,16 +1424,56 @@ def crawl_all_data(progress_bar, status_text, markets, max_workers):
     progress_bar.progress(0.10)
     status_text.markdown(f"✅ **1단계 완료:** {len(stock_df)}개 종목 수집")
 
-    total = len(stock_df)
-    status_text.markdown(f"⏳ **2단계:** {total}개 종목 컨센서스 분석 중... ({max_workers}워커)")
-    results, counter, lock = [], [0], threading.Lock()
+    # ── Resume: 기존 캐시에서 27E·28E·OBV 모두 있는 종목은 건너뛰기 ─
+    existing_results = []
+    skip_codes = set()
+    if resume and os.path.exists(CSV_FILE):
+        try:
+            old_df = pd.read_csv(CSV_FILE, encoding='utf-8-sig')
+            old_df['종목코드'] = old_df['종목코드'].astype(str).str.zfill(6)
+            # "완전한" 행 = 27E 매출액 + OBV_trend 둘 다 채워진 행
+            valid_mask = old_df['매출액_2027'].notna()
+            if 'OBV_trend' in old_df.columns:
+                valid_mask &= old_df['OBV_trend'].fillna('').astype(str).ne('')
+            valid = old_df[valid_mask]
+            existing_results = valid.to_dict('records')
+            skip_codes = set(valid['종목코드'])
+        except Exception:
+            pass
+
+    rows = [r.to_dict() for _, r in stock_df.iterrows()]
+    rows_to_crawl = [r for r in rows
+                     if str(r['종목코드']).zfill(6) not in skip_codes]
+    total_remaining = len(rows_to_crawl)
+    total_overall = len(rows)
+
+    if skip_codes:
+        status_text.markdown(
+            f"♻️ **이어서 수집:** 기존 캐시 {len(skip_codes):,}개 유지, "
+            f"빠진 {total_remaining:,}개만 새로 수집 ({max_workers}워커)"
+        )
+    else:
+        status_text.markdown(
+            f"⏳ **2단계:** {total_remaining}개 종목 컨센서스 분석 중... ({max_workers}워커)"
+        )
+
+    if total_remaining == 0:
+        df = pd.DataFrame(existing_results)
+        save_cache(df, {'markets': markets, 'data_count': len(df), 'resumed_only': True})
+        save_history(df); save_consensus_snapshot(df)
+        progress_bar.progress(1.0)
+        status_text.markdown(f"✅ 이미 모두 수집됨 ({len(df)}개)")
+        return df
+
+    results = list(existing_results)
+    counter, lock = [0], threading.Lock()
+    save_lock = threading.Lock()
 
     def process(rd):
         c = scrape_naver_consensus(rd['종목코드'], rd['종목명'])
         if c:
             c['시장'] = rd['시장']; c['현재가'] = rd['현재가']
             c['시가총액'] = rd['시가총액']; c['Recent_Volume'] = rd['Recent_Volume']
-            # 거래량 폭증 배수 계산
             avg_vol = c.get('평균거래량_20d', np.nan)
             today_vol = rd['Recent_Volume']
             if pd.notna(avg_vol) and avg_vol > 0 and today_vol > 0:
@@ -1438,31 +1483,50 @@ def crawl_all_data(progress_bar, status_text, markets, max_workers):
             return ('ok', c)
         return ('no', None)
 
-    rows = [r.to_dict() for _, r in stock_df.iterrows()]
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        futs = {ex.submit(process, r): i for i, r in enumerate(rows)}
+        futs = {ex.submit(process, r): i for i, r in enumerate(rows_to_crawl)}
         for f in as_completed(futs):
-            with lock: counter[0] += 1; cnt = counter[0]
+            with lock:
+                counter[0] += 1; cnt = counter[0]
             try:
                 s, d = f.result()
                 if s == 'ok': results.append(d)
-            except: pass
-            if cnt % 100 == 0 or cnt == total:
-                progress_bar.progress(min(0.10 + (cnt/total)*0.85, 0.95))
-                status_text.markdown(f"⏳ **2단계:** {cnt}/{total} ({cnt/total*100:.0f}%) | 수집: {len(results)}개")
+            except:
+                pass
+
+            # 진행률 / 상태 (100 단위)
+            if cnt % 100 == 0 or cnt == total_remaining:
+                progress_bar.progress(min(0.10 + (cnt/total_remaining)*0.85, 0.95))
+                status_text.markdown(
+                    f"⏳ **2단계:** {cnt}/{total_remaining} ({cnt/total_remaining*100:.0f}%) | "
+                    f"누적: {len(results):,}/{total_overall:,}개"
+                )
+
+            # 부분 저장 (500 단위) — 중간에 멈춰도 이어서 수집 가능
+            if cnt % 500 == 0 and cnt > 0:
+                with save_lock:
+                    try:
+                        partial_df = pd.DataFrame(results)
+                        save_cache(partial_df, {
+                            'markets': markets, 'partial': True,
+                            'progress': f'{cnt}/{total_remaining}',
+                            'data_count': len(results),
+                        })
+                    except:
+                        pass
 
     progress_bar.progress(1.0)
     if not results: return pd.DataFrame()
 
     df = pd.DataFrame(results)
-    meta = {'markets': markets, 'total_analyzed': total, 'data_count': len(results)}
+    meta = {'markets': markets, 'total_analyzed': total_overall, 'data_count': len(results)}
     save_cache(df, meta)
 
     # 누적 기록 + 컨센서스 스냅샷 저장 (Estimates Revision 분석용)
     save_history(df)
     save_consensus_snapshot(df)
 
-    status_text.markdown(f"✅ **완료!** {len(results)}개 종목 데이터 수집 → 캐시 저장됨")
+    status_text.markdown(f"✅ **완료!** 총 {len(results):,}개 종목 → 캐시 저장됨")
     return df
 
 
@@ -2344,12 +2408,22 @@ def main():
         drop_huge_loss = st.checkbox("매출 초과 적자기업 제외", value=True, help="영업손실 규모가 매출액보다 큰 경우(바이오/성장주 특화) 무조건 제외합니다.")
 
         st.markdown("### ⚡ 성능 설정")
-        max_workers = st.slider("병렬 워커 수", 5, 100, 50, 5)
+        max_workers = st.slider("병렬 워커 수", 5, 100, 30, 5,
+                                help="높을수록 빠르지만 timeout/IP차단 위험 증가. 30~40 권장")
 
         st.markdown("---")
 
-        crawl_btn = st.button("🔄 데이터 수집 (크롤링)", width="stretch",
-                              help="전종목 컨센서스를 새로 크롤링합니다 (~5분)")
+        force_fresh = st.checkbox(
+            "처음부터 전체 재수집",
+            value=False,
+            help="체크 해제 시: 기존 캐시 유지하고 빠진 종목만 추가 수집(이어서). "
+                 "체크 시: 캐시 무시하고 전체 새로 수집."
+        )
+        crawl_btn = st.button(
+            "🔄 데이터 수집 (이어서)" if not force_fresh else "🔄 전체 재수집",
+            width="stretch",
+            help="중간에 멈춰도 500종목마다 자동 저장되니 다시 누르면 이어집니다.",
+        )
 
         st.markdown("---")
         st.markdown("""
@@ -2367,7 +2441,8 @@ def main():
         progress_bar = st.progress(0)
         status_text = st.empty()
         start = time.time()
-        crawl_all_data(progress_bar, status_text, markets, max_workers)
+        crawl_all_data(progress_bar, status_text, markets, max_workers,
+                       resume=(not force_fresh))
         elapsed = time.time() - start
         st.session_state['elapsed'] = elapsed
         time.sleep(1)
