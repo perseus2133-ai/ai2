@@ -1977,6 +1977,9 @@ def render_stock_card(row, rank):
     fwd_per_val = row.get('Forward_PER', np.nan)
     peg_val     = row.get('PEG', np.nan)
     vol_ratio   = row.get('거래량배수', np.nan)
+    fair_mc_28   = row.get('적정시총_2028E', np.nan)
+    gap_28       = row.get('괴리율_2028E', np.nan)
+    peer_mult_28 = row.get('업종_2028E_멀티플_중앙값', np.nan)
 
     code_str = str(code).zfill(6)
     nurl = f"https://finance.naver.com/item/main.naver?code={code_str}"
@@ -2241,11 +2244,32 @@ def render_stock_card(row, rank):
     )
 
     # ── 6개 지표 pill (Fwd PER, ROE는 highlight) ───────────────
-    def pill(label, val, hi=False):
+    def pill(label, val, hi=False, tip=''):
         cls = 'qcd-pill hi' if hi else 'qcd-pill'
-        return f'<div class="{cls}"><div class="lbl">{label}</div><div class="val">{val}</div></div>'
+        title_attr = f' title="{tip}"' if tip else ''
+        return f'<div class="{cls}"{title_attr}><div class="lbl">{label}</div><div class="val">{val}</div></div>'
 
     sec_per_str = f'{sector_per:.1f}' if pd.notna(sector_per) else '-'
+
+    # ── 적정시총 / 괴리율 (2028E 영업이익 × 업종 멀티플 중앙값) ──
+    if pd.notna(fair_mc_28):
+        _fmt = format_number(fair_mc_28)
+        # format_number는 1_000_000(억) 이상이면 "X조"로 변환, 그 외엔 단순 숫자
+        fair_mc_str = _fmt if '조' in _fmt else f'{_fmt}억'
+    else:
+        fair_mc_str = '-'
+    if pd.notna(gap_28):
+        if gap_28 >= 30:    gap_color = '#34D399'; gap_str = f'▲ {gap_28:+.1f}%'
+        elif gap_28 >= 0:   gap_color = '#34D399'; gap_str = f'{gap_28:+.1f}%'
+        elif gap_28 > -30:  gap_color = '#F87171'; gap_str = f'{gap_28:+.1f}%'
+        else:               gap_color = '#EF4444'; gap_str = f'▼ {gap_28:+.1f}%'
+        gap_html = f'<span style="color:{gap_color};">{gap_str}</span>'
+    else:
+        gap_html = '-'
+    peer_mult_str = f'{peer_mult_28:.1f}x' if pd.notna(peer_mult_28) else '-'
+    fair_tip = f"업종 2028E 멀티플 중앙값({peer_mult_str}) × 본 종목 2028E 영업이익. 영업이익&gt;0, 업종 내 n≥3, 자기 제외."
+    gap_tip  = "(적정시총 / 현재시총 − 1) × 100. 양수=저평가, 음수=고평가."
+
     pills_html = (
         f'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px;align-items:flex-start;">'
         + pill('PER (TTM)', per_str)
@@ -2254,6 +2278,8 @@ def render_stock_card(row, rank):
         + pill('PBR', pbr_str)
         + pill('PEG', peg_str)
         + pill('ROE', roe_str, hi=True)
+        + pill("적정시총'28E", fair_mc_str, hi=True, tip=fair_tip)
+        + pill("괴리율'28E", gap_html, hi=True, tip=gap_tip)
         + f'</div>'
     )
 
@@ -2492,6 +2518,39 @@ def main():
         sector_per_map = get_sector_per_map()
         df['업종평균PER'] = df['업종'].map(sector_per_map)
 
+        # ── 업종별 2028E 영업이익 멀티플(시총/2028E OP) 계산 ─────────
+        # 영업이익_2028 > 0 인 종목만 사용, 업종 내 n>=3 일 때만, 자기 자신 제외 중앙값
+        if '시가총액' in df.columns and '영업이익_2028' in df.columns:
+            op28 = pd.to_numeric(df['영업이익_2028'], errors='coerce')
+            mc   = pd.to_numeric(df['시가총액'],   errors='coerce')
+            df['멀티플_2028E'] = np.where((op28 > 0) & (mc > 0), mc / op28, np.nan)
+
+            def _peer_median_excl_self(group):
+                vals = group['멀티플_2028E']
+                out = pd.Series(np.nan, index=group.index)
+                if vals.notna().sum() < 3:
+                    return out
+                for idx in group.index:
+                    others = vals.drop(idx).dropna()
+                    if len(others) >= 2:
+                        out.loc[idx] = others.median()
+                return out
+
+            df['업종_2028E_멀티플_중앙값'] = (
+                df.groupby('업종', group_keys=False).apply(_peer_median_excl_self)
+            )
+            df['적정시총_2028E'] = df['업종_2028E_멀티플_중앙값'] * op28
+            df['괴리율_2028E'] = np.where(
+                pd.notna(df['적정시총_2028E']) & (mc > 0),
+                (df['적정시총_2028E'] / mc - 1) * 100,
+                np.nan
+            )
+        else:
+            df['멀티플_2028E'] = np.nan
+            df['업종_2028E_멀티플_중앙값'] = np.nan
+            df['적정시총_2028E'] = np.nan
+            df['괴리율_2028E'] = np.nan
+
         # 메트릭 카드
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -2698,7 +2757,8 @@ def main():
                     st.button("📥 누적기록 없음", disabled=True, use_container_width=True)
 
             show_cols = ['종목명','종목코드','시장','현재가','Recent_Volume','거래량배수','시가총액','업종',
-                'PER','Forward_PER','PEG','PBR','ROE','업종평균PER','데이터_가용성',
+                'PER','Forward_PER','PEG','PBR','ROE','업종평균PER',
+                '업종_2028E_멀티플_중앙값','적정시총_2028E','괴리율_2028E','데이터_가용성',
                 '매출액_성장률_2025','매출액_성장률_2026','매출액_성장률_2027','매출액_성장률_2028','매출액_최대성장률',
                 '영업이익_성장률_2025','영업이익_성장률_2026','영업이익_성장률_2027','영업이익_성장률_2028','영업이익_최대성장률','종합성장점수']
             ac = [c for c in show_cols if c in df.columns]
@@ -2715,6 +2775,9 @@ def main():
                 "PBR": st.column_config.NumberColumn("PBR", format="%.2f"),
                 "ROE": st.column_config.NumberColumn("ROE", format="%.1f%%"),
                 "업종평균PER": st.column_config.NumberColumn("업종PER", format="%.1f"),
+                "업종_2028E_멀티플_중앙값": st.column_config.NumberColumn("업종멀티플'28E(중앙)", format="%.1fx", help="시총/2028E 영업이익 (영업이익>0, 자기제외, n≥3)"),
+                "적정시총_2028E": st.column_config.NumberColumn("적정시총'28E(억)", format="%.0f", help="업종 멀티플 중앙값 × 본 종목 2028E 영업이익"),
+                "괴리율_2028E": st.column_config.NumberColumn("괴리율'28E", format="%+.1f%%", help="(적정시총/현재시총-1)×100, 양수=저평가"),
                 "매출액_최대성장률": st.column_config.NumberColumn("매출MAX%", format="%.1f%%"),
                 "영업이익_최대성장률": st.column_config.NumberColumn("영업이익MAX%", format="%.1f%%"),
                 "종합성장점수": st.column_config.NumberColumn("종합점수", format="%.0f"),
