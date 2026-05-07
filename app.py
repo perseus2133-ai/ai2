@@ -1995,6 +1995,7 @@ def render_stock_card(row, rank):
     fair_px_28   = row.get('적정주가_2028E', np.nan)
     gap_28       = row.get('괴리율_2028E', np.nan)
     peer_mult_28 = row.get('업종_2028E_멀티플_중앙값', np.nan)
+    is_fallback  = bool(row.get('멀티플_시장폴백_2028E', False))
 
     code_str = str(code).zfill(6)
     nurl = f"https://finance.naver.com/item/main.naver?code={code_str}"
@@ -2269,12 +2270,14 @@ def render_stock_card(row, rank):
     # ── 적정시총 / 적정주가 / 괴리율 (2028E 영업이익 × 업종 멀티플 중앙값) ──
     fair_mc_str = format_mcap(fair_mc_28)
     fair_px_str = f'{int(round(fair_px_28)):,}원' if pd.notna(fair_px_28) and fair_px_28 > 0 else '-'
-    # 적정시총 표시에 업종 멀티플(peer median) 작게 부기
+    # 적정시총 표시에 업종 멀티플(peer median) 작게 부기. 시장 폴백시 라벨 구분
     if pd.notna(peer_mult_28) and pd.notna(fair_mc_28):
+        _src_label = '*시장' if is_fallback else ''
+        _src_color = '#F59E0B' if is_fallback else '#94A3B8'
         fair_mc_html = (
             f'{fair_mc_str}'
-            f'<span style="font-size:0.62rem;color:#94A3B8;font-weight:500;'
-            f'margin-left:4px;letter-spacing:0;">@{peer_mult_28:.1f}x</span>'
+            f'<span style="font-size:0.62rem;color:{_src_color};font-weight:500;'
+            f'margin-left:4px;letter-spacing:0;">@{peer_mult_28:.1f}x{_src_label}</span>'
         )
     else:
         fair_mc_html = fair_mc_str
@@ -2287,7 +2290,8 @@ def render_stock_card(row, rank):
     else:
         gap_html = '-'
     peer_mult_str = f'{peer_mult_28:.1f}x' if pd.notna(peer_mult_28) else '-'
-    fair_tip = f"업종 2028E 멀티플 중앙값({peer_mult_str}) × 본 종목 2028E 영업이익. 영업이익&gt;0, 업종 내 n≥3, 자기 제외."
+    _src_desc = "시장 전체 멀티플 중앙값(상하위 5% 트림)으로 폴백" if is_fallback else "업종 내 n≥3, 자기 제외 중앙값"
+    fair_tip = f"멀티플 기준값({peer_mult_str}) × 본 종목 2028E 영업이익. {_src_desc}."
     fair_px_tip = "적정주가 = 현재가 × (적정시총 / 현재시총). 발행주식수 변동 없다고 가정."
     gap_tip  = "(적정시총 / 현재시총 − 1) × 100. 양수=저평가, 음수=고평가."
 
@@ -2536,11 +2540,22 @@ def main():
             all_df['업종'] = all_df['업종'].fillna('기타')
 
         # ── 업종별 2028E 영업이익 멀티플(시총/2028E OP) - 전체 모집단 기준 ──
-        # 영업이익_2028 > 0 인 종목만 사용, 업종 내 n>=3 일 때만, 자기 자신 제외 중앙값
+        # 1단계: 업종 내 n>=3 이면 업종 중앙값 (자기 자신 제외 leave-one-out)
+        # 2단계: n<3 이면 시장 전체 중앙값으로 폴백 (시각적으로 구분)
         if '시가총액' in all_df.columns and '영업이익_2028' in all_df.columns:
             op28_all = pd.to_numeric(all_df['영업이익_2028'], errors='coerce')
             mc_all   = pd.to_numeric(all_df['시가총액'],   errors='coerce')
             all_df['멀티플_2028E'] = np.where((op28_all > 0) & (mc_all > 0), mc_all / op28_all, np.nan)
+
+            # 시장 전체 멀티플 중앙값 (이상치 트림: 상하위 5% 제외)
+            _all_valid = all_df['멀티플_2028E'].dropna()
+            if len(_all_valid) >= 10:
+                _q_lo, _q_hi = _all_valid.quantile(0.05), _all_valid.quantile(0.95)
+                _market_med = _all_valid[(_all_valid >= _q_lo) & (_all_valid <= _q_hi)].median()
+            elif len(_all_valid) > 0:
+                _market_med = _all_valid.median()
+            else:
+                _market_med = np.nan
 
             def _peer_median_excl_self(group):
                 vals = group['멀티플_2028E']
@@ -2553,9 +2568,13 @@ def main():
                         out.loc[idx] = others.median()
                 return out
 
-            all_df['업종_2028E_멀티플_중앙값'] = (
+            sector_med = (
                 all_df.groupby('업종', group_keys=False).apply(_peer_median_excl_self)
             )
+            # 업종 산출 실패시 시장 전체 중앙값으로 폴백
+            all_df['업종_2028E_멀티플_중앙값'] = sector_med.fillna(_market_med)
+            all_df['멀티플_시장폴백_2028E'] = sector_med.isna() & pd.notna(_market_med)
+
             all_df['적정시총_2028E'] = all_df['업종_2028E_멀티플_중앙값'] * op28_all
             all_df['괴리율_2028E'] = np.where(
                 pd.notna(all_df['적정시총_2028E']) & (mc_all > 0),
@@ -2571,9 +2590,14 @@ def main():
                 price_all * (all_df['적정시총_2028E'] / mc_all),
                 np.nan
             )
+            # 본 종목의 영업이익_2028 자체가 없으면 적정시총 산출 불가
+            no_op28 = ~(op28_all > 0)
+            all_df.loc[no_op28, ['적정시총_2028E', '괴리율_2028E', '적정주가_2028E']] = np.nan
         else:
-            for _c in ['멀티플_2028E', '업종_2028E_멀티플_중앙값', '적정시총_2028E', '괴리율_2028E', '적정주가_2028E']:
+            for _c in ['멀티플_2028E', '업종_2028E_멀티플_중앙값',
+                       '적정시총_2028E', '괴리율_2028E', '적정주가_2028E']:
                 all_df[_c] = np.nan
+            all_df['멀티플_시장폴백_2028E'] = False
 
         df = apply_filters(all_df.copy(), rev_thresh, op_thresh, min_vol, markets, req_min_rev_500, req_op_profit, drop_huge_loss, op_size_label)
 
