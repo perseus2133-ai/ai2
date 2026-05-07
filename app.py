@@ -1571,6 +1571,28 @@ def apply_filters(df, rev_thresh, op_thresh, min_vol, markets, req_min_rev_500=T
         rv = [x for x in rv if pd.notna(x)]; ov = [x for x in ov if pd.notna(x)]
         return (any(x >= rev_thresh for x in rv)) or (any(x >= op_thresh for x in ov))
     df = df[df.apply(meets, axis=1)].copy()
+    df = compute_card_fields(df)
+    return df.sort_values('가시성기준_정렬점수', ascending=False).reset_index(drop=True)
+
+
+def compute_card_fields(df):
+    """카드 렌더에 필요한 파생 컬럼들을 추가한다.
+    종합성장점수 / 미래가시성_순위·성장률·정렬점수 / Forward_PER / PEG /
+    영업이익_26이후_최대 — 필터링 없이 전 종목에 적용 가능.
+    """
+    if df.empty:
+        return df
+    df = df.copy()
+
+    # 영업이익 26~28 최대값
+    def _op_max_26(row):
+        vals = [row.get(f'영업이익_{y}', np.nan) for y in [2026, 2027, 2028]]
+        vals = [v for v in vals if pd.notna(v)]
+        return max(vals) if vals else np.nan
+    if '영업이익_26이후_최대' not in df.columns:
+        df['영업이익_26이후_최대'] = df.apply(_op_max_26, axis=1)
+
+    # 점수 + 가시성 등급
     scores, priority_ranks, priority_scores, metric_pcts = [], [], [], []
     for _, row in df.iterrows():
         s = 0
@@ -1578,10 +1600,11 @@ def apply_filters(df, rev_thresh, op_thresh, min_vol, markets, req_min_rev_500=T
         if pd.notna(rm): s += min(rm, 2000)
         om = row.get('영업이익_최대성장률', np.nan)
         if pd.notna(om): s += min(om, 2000)
-        con = sum(1 for y in [2025,2026,2027,2028]
+        con = sum(1 for y in [2025, 2026, 2027, 2028]
                   if (pd.notna(row.get(f'매출액_성장률_{y}')) and row.get(f'매출액_성장률_{y}') > 30)
                   or (pd.notna(row.get(f'영업이익_성장률_{y}')) and row.get(f'영업이익_성장률_{y}') > 30))
-        s += con * 50; scores.append(round(s, 2))
+        s += con * 50
+        scores.append(round(s, 2))
 
         rv24 = row.get('매출액_2024', np.nan)
         rv25 = row.get('매출액_2025', np.nan)
@@ -1589,8 +1612,7 @@ def apply_filters(df, rev_thresh, op_thresh, min_vol, markets, req_min_rev_500=T
         rv27 = row.get('매출액_2027', np.nan)
         rv28 = row.get('매출액_2028', np.nan)
 
-        pr = 5
-        mt = 0
+        pr, mt = 5, 0
         if pd.notna(rv28) and pd.notna(rv25) and rv25 > 0:
             pr = 1; mt = ((rv28 / rv25) ** (1/3) - 1) * 100
         elif pd.notna(rv27) and pd.notna(rv25) and rv25 > 0:
@@ -1599,19 +1621,16 @@ def apply_filters(df, rev_thresh, op_thresh, min_vol, markets, req_min_rev_500=T
             pr = 3; mt = ((rv26 / rv25) - 1) * 100
         elif pd.notna(rv25) and pd.notna(rv24) and rv24 > 0:
             pr = 4; mt = ((rv25 / rv24) - 1) * 100
-
         priority_ranks.append(pr)
         metric_pcts.append(mt)
         priority_scores.append((5 - pr) * 100_000_000 + mt)
 
-    df['종합성장점수'] = scores
-    df['미래가시성_순위'] = priority_ranks
-    df['미래가시성_성장률'] = metric_pcts
+    df['종합성장점수']        = scores
+    df['미래가시성_순위']      = priority_ranks
+    df['미래가시성_성장률']    = metric_pcts
     df['가시성기준_정렬점수'] = priority_scores
 
-    # ── Forward PER & PEG (벡터화) ──────────────────────────────
-    # Forward PER = Trailing PER / (1 + 26E 영업이익 성장률)
-    # 26E 없으면 25E로 fallback
+    # Forward PER & PEG (벡터화)
     fwd_g = df['영업이익_성장률_2026'].where(
         df['영업이익_성장률_2026'].notna(), df['영업이익_성장률_2025']
     )
@@ -1619,16 +1638,14 @@ def apply_filters(df, rev_thresh, op_thresh, min_vol, markets, req_min_rev_500=T
     df['Forward_PER'] = np.where(
         valid_fwd,
         (df['PER'] / (1 + fwd_g / 100)).round(1),
-        np.nan
+        np.nan,
     )
-    # PEG = Forward PER ÷ 성장률(%) — 1 이하면 저평가 시그널
     df['PEG'] = np.where(
         valid_fwd & df['Forward_PER'].notna(),
         (df['Forward_PER'] / fwd_g).round(2),
-        np.nan
+        np.nan,
     )
-
-    return df.sort_values('가시성기준_정렬점수', ascending=False).reset_index(drop=True)
+    return df
 
 
 # ============================================================
@@ -2489,14 +2506,19 @@ def main():
         st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
         if df.empty:
-            st.warning("⚠️ 조건에 부합하는 종목이 없습니다. 사이드바에서 기준을 완화해보세요.")
-            return
+            st.warning("⚠️ 조건에 부합하는 종목이 없습니다. 사이드바에서 기준을 완화하거나, '개별종목확인' 탭에서 종목명으로 직접 검색하세요.")
 
-        # 탭
-        tab1, tab2, tab3, tab4 = st.tabs(["📋 종목 카드 뷰", "🏢 업종별 테마순위", "📊 데이터 테이블", "📅 누적 기록"])
+        # 탭 (5개)
+        tab_cards, tab_search, tab_sector, tab_table, tab_hist = st.tabs([
+            "📋 종목 카드 뷰", "🔍 개별종목확인",
+            "🏢 업종별 테마순위", "📊 데이터 테이블", "📅 누적 기록",
+        ])
 
-        with tab1:
-            st.markdown(f'<div style="color:#FFFFFF; font-size:0.9rem; font-family:\'JetBrains Mono\', monospace; margin-bottom:10px;">> 스크리너 결과: {len(df)}개 발굴</div>', unsafe_allow_html=True)
+        with tab_cards:
+            if df.empty:
+                st.info("필터 조건을 완화하거나 옆 탭의 '개별종목확인'을 사용하세요.")
+            else:
+                st.markdown(f'<div style="color:#FFFFFF; font-size:0.9rem; font-family:\'JetBrains Mono\', monospace; margin-bottom:10px;">> 스크리너 결과: {len(df)}개 발굴</div>', unsafe_allow_html=True)
             scol1, scol2 = st.columns([2, 1])
             with scol1:
                 sort_options = {
@@ -2537,9 +2559,83 @@ def main():
             for rank, (_, row) in enumerate(df_s.iloc[si:si+page_size].iterrows(), start=si+1):
                 render_stock_card(row, rank)
 
-        with tab2:
+        # ────────────────────────────────────────────────────────
+        # 개별종목확인 탭 — 필터 무시하고 종목명/코드로 직접 검색
+        # ────────────────────────────────────────────────────────
+        with tab_search:
+            st.markdown(
+                "<h3 style='color:#FFFFFF;'>🔍 개별종목 확인</h3>"
+                "<div style='color:#A0AEC0;font-size:0.85rem;margin-bottom:12px;'>"
+                "필터에 걸리지 않은 종목도 종목명(한글)이나 종목코드로 검색해 카드 형태로 확인할 수 있습니다."
+                "</div>",
+                unsafe_allow_html=True,
+            )
+
+            search_q = st.text_input(
+                "종목명 또는 종목코드",
+                value=st.session_state.get('search_q', ''),
+                placeholder="예: 삼성전자, 005930, HBM, 2차전지",
+                key="search_q",
+            )
+
+            q = (search_q or '').strip()
+            if not q:
+                st.markdown(
+                    "<div style='color:#A0AEC0;font-size:0.9rem;padding:30px 0;'>"
+                    "↑ 종목명 또는 6자리 코드를 입력하세요. 부분 일치(예: '삼성' → 삼성전자/삼성SDI/...) 가능."
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                base = all_df.copy()
+                # 코드 정규화
+                base['__code'] = base['종목코드'].astype(str).str.zfill(6)
+                # 검색 조건: 종목명 contains (대소문자 무시) OR 코드 contains
+                name_mask = base['종목명'].astype(str).str.contains(q, case=False, na=False)
+                if q.isdigit():
+                    code_mask = base['__code'].str.contains(q.zfill(min(6, len(q))) if len(q) >= 3 else q, na=False)
+                else:
+                    code_mask = pd.Series(False, index=base.index)
+                hits = base[name_mask | code_mask].drop(columns='__code', errors='ignore')
+
+                if hits.empty:
+                    st.warning(f"⚠️ '{q}'에 해당하는 종목이 없습니다. (캐시: {len(all_df):,}개 종목)")
+                else:
+                    # 카드 렌더에 필요한 파생 컬럼 + 업종/업종평균PER 매핑
+                    hits = compute_card_fields(hits)
+                    if '업종' not in hits.columns or hits['업종'].isna().all():
+                        sector_map_local = _load_sector_map()
+                        hits['업종'] = hits['종목코드'].astype(str).str.zfill(6).map(sector_map_local).fillna('기타')
+                    else:
+                        hits['업종'] = hits['업종'].fillna('기타')
+                    hits['업종평균PER'] = hits['업종'].map(get_sector_per_map())
+
+                    # 거래량배수 폴백 (기존 캐시에 없을 수 있음)
+                    if '거래량배수' not in hits.columns:
+                        hits['거래량배수'] = np.nan
+
+                    hits = hits.sort_values('가시성기준_정렬점수', ascending=False).reset_index(drop=True)
+
+                    st.markdown(
+                        f"<div style='color:#62EFFF; font-size:0.9rem; "
+                        f"font-family:\"JetBrains Mono\", monospace; margin: 8px 0 14px 0;'>"
+                        f"&gt; \"{q}\" 검색 결과: <b>{len(hits)}</b>개 종목</div>",
+                        unsafe_allow_html=True,
+                    )
+
+                    # 너무 많으면 상위 N개만 (안전장치)
+                    MAX_CARDS = 30
+                    show_df = hits.head(MAX_CARDS)
+                    if len(hits) > MAX_CARDS:
+                        st.info(f"검색 결과가 {len(hits)}개로 많아 상위 {MAX_CARDS}개만 카드로 표시합니다. 더 정확한 검색어를 입력하세요.")
+                    for rank, (_, row) in enumerate(show_df.iterrows(), start=1):
+                        render_stock_card(row, rank)
+
+        with tab_sector:
             st.markdown("<h3 style='color:#FFFFFF;'>🏢 업종별 수익 테마 순위</h3>", unsafe_allow_html=True)
-            if '업종' in df.columns:
+            if df.empty:
+                st.info("필터에 걸린 종목이 없어 업종 순위를 계산할 수 없습니다.")
+            elif '업종' in df.columns:
                 ind_df = df.groupby('업종')['영업이익_최대성장률'].mean().reset_index()
                 ind_df.rename(columns={'영업이익_최대성장률': '평균_성장률'}, inplace=True)
                 ind_df = ind_df.sort_values('평균_성장률', ascending=False).reset_index(drop=True)
@@ -2555,7 +2651,7 @@ def main():
             else:
                 st.warning("데이터에 '업종' 정보가 포함되어 있지 않습니다.")
 
-        with tab3:
+        with tab_table:
             st.markdown("### 📊 전체 데이터 테이블")
             dc1, dc2, dc3 = st.columns(3)
             with dc1:
@@ -2619,7 +2715,7 @@ def main():
                 "종합성장점수": st.column_config.NumberColumn("종합점수", format="%.0f"),
             })
 
-        with tab4:
+        with tab_hist:
             st.markdown("### 📅 누적 기록 (거래량 100만 이상)")
             history = load_history()
             if not history:
