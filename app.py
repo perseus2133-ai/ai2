@@ -1661,6 +1661,20 @@ def format_number(v):
     if abs(v) >= 1_000_000: return f"{v/10000:.0f}조"
     return f"{v:,.0f}" if abs(v) >= 10000 else f"{v:,.1f}"
 
+def format_mcap(v):
+    """시가총액·적정시총 표시용: 'X조Y억' 형태 (단위: 억원 입력 가정)."""
+    if pd.isna(v) or v is None: return "-"
+    val = float(v)
+    sign = '-' if val < 0 else ''
+    a = abs(val)
+    if a >= 10000:
+        jo = int(a // 10000)
+        eok = int(round(a - jo * 10000))
+        if eok >= 10000:  # 반올림 캐리 처리
+            jo += 1; eok = 0
+        return f"{sign}{jo:,}조" if eok == 0 else f"{sign}{jo:,}조 {eok:,}억"
+    return f"{sign}{a:,.0f}억"
+
 def format_growth(v):
     if pd.isna(v): return '<span style="color:#CED4DA;">-</span>'
     if v >= 100: return f'<span class="growth-mega">🔥 {v:,.1f}%</span>'
@@ -2252,12 +2266,7 @@ def render_stock_card(row, rank):
     sec_per_str = f'{sector_per:.1f}' if pd.notna(sector_per) else '-'
 
     # ── 적정시총 / 괴리율 (2028E 영업이익 × 업종 멀티플 중앙값) ──
-    if pd.notna(fair_mc_28):
-        _fmt = format_number(fair_mc_28)
-        # format_number는 1_000_000(억) 이상이면 "X조"로 변환, 그 외엔 단순 숫자
-        fair_mc_str = _fmt if '조' in _fmt else f'{_fmt}억'
-    else:
-        fair_mc_str = '-'
+    fair_mc_str = format_mcap(fair_mc_28)
     if pd.notna(gap_28):
         if gap_28 >= 30:    gap_color = '#34D399'; gap_str = f'▲ {gap_28:+.1f}%'
         elif gap_28 >= 0:   gap_color = '#34D399'; gap_str = f'{gap_28:+.1f}%'
@@ -2343,7 +2352,7 @@ def render_stock_card(row, rank):
         f'/ {format_turnover(volume, price)}</span>'
         f'<span style="font-size:0.82rem;margin-left:6px;">{vol_ratio_html}</span></div></div>'
         f'<div><div class="qcd-stat-label">시가총액</div>'
-        f'<div class="qcd-stat-val" style="font-size:0.95rem;">{format_number(mcap)}</div></div>'
+        f'<div class="qcd-stat-val" style="font-size:0.95rem;">{format_mcap(mcap)}</div></div>'
         f'<div><div class="qcd-stat-label">외인 순매수 (5d)</div>'
         f'<div>{foreign_html}</div></div>'
         f'<div><div class="qcd-stat-label">기관 순매수 (5d)</div>'
