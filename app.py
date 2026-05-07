@@ -2513,26 +2513,21 @@ def main():
         cache_ts = cache['timestamp']
         elapsed = st.session_state.get('elapsed', 0)
 
-        df = apply_filters(all_df.copy(), rev_thresh, op_thresh, min_vol, markets, req_min_rev_500, req_op_profit, drop_huge_loss, op_size_label)
-
-        # 업종 매핑 적용
-        # 업종 매핑: CSV 콜럼 우선, 없으면 sector_map.json, 구 파일도 없으면 런타임 크롤링
-        if '업종' not in df.columns or df['업종'].isna().all():
+        # ── 업종 매핑은 필터 적용 전 all_df에 먼저 적용 ───────────
+        # (멀티플 계산이 전체 모집단을 기준으로 이루어져야 사용자 필터에
+        #  영향받지 않고 안정적으로 산출됨)
+        if '업종' not in all_df.columns or all_df['업종'].isna().all():
             sector_map = _load_sector_map()
-            df['업종'] = df['종목코드'].astype(str).str.zfill(6).map(sector_map).fillna('기타')
+            all_df['업종'] = all_df['종목코드'].astype(str).str.zfill(6).map(sector_map).fillna('기타')
         else:
-            df['업종'] = df['업종'].fillna('기타')
+            all_df['업종'] = all_df['업종'].fillna('기타')
 
-        # 업종평균 PER 매핑
-        sector_per_map = get_sector_per_map()
-        df['업종평균PER'] = df['업종'].map(sector_per_map)
-
-        # ── 업종별 2028E 영업이익 멀티플(시총/2028E OP) 계산 ─────────
+        # ── 업종별 2028E 영업이익 멀티플(시총/2028E OP) - 전체 모집단 기준 ──
         # 영업이익_2028 > 0 인 종목만 사용, 업종 내 n>=3 일 때만, 자기 자신 제외 중앙값
-        if '시가총액' in df.columns and '영업이익_2028' in df.columns:
-            op28 = pd.to_numeric(df['영업이익_2028'], errors='coerce')
-            mc   = pd.to_numeric(df['시가총액'],   errors='coerce')
-            df['멀티플_2028E'] = np.where((op28 > 0) & (mc > 0), mc / op28, np.nan)
+        if '시가총액' in all_df.columns and '영업이익_2028' in all_df.columns:
+            op28_all = pd.to_numeric(all_df['영업이익_2028'], errors='coerce')
+            mc_all   = pd.to_numeric(all_df['시가총액'],   errors='coerce')
+            all_df['멀티플_2028E'] = np.where((op28_all > 0) & (mc_all > 0), mc_all / op28_all, np.nan)
 
             def _peer_median_excl_self(group):
                 vals = group['멀티플_2028E']
@@ -2545,20 +2540,24 @@ def main():
                         out.loc[idx] = others.median()
                 return out
 
-            df['업종_2028E_멀티플_중앙값'] = (
-                df.groupby('업종', group_keys=False).apply(_peer_median_excl_self)
+            all_df['업종_2028E_멀티플_중앙값'] = (
+                all_df.groupby('업종', group_keys=False).apply(_peer_median_excl_self)
             )
-            df['적정시총_2028E'] = df['업종_2028E_멀티플_중앙값'] * op28
-            df['괴리율_2028E'] = np.where(
-                pd.notna(df['적정시총_2028E']) & (mc > 0),
-                (df['적정시총_2028E'] / mc - 1) * 100,
+            all_df['적정시총_2028E'] = all_df['업종_2028E_멀티플_중앙값'] * op28_all
+            all_df['괴리율_2028E'] = np.where(
+                pd.notna(all_df['적정시총_2028E']) & (mc_all > 0),
+                (all_df['적정시총_2028E'] / mc_all - 1) * 100,
                 np.nan
             )
         else:
-            df['멀티플_2028E'] = np.nan
-            df['업종_2028E_멀티플_중앙값'] = np.nan
-            df['적정시총_2028E'] = np.nan
-            df['괴리율_2028E'] = np.nan
+            for _c in ['멀티플_2028E', '업종_2028E_멀티플_중앙값', '적정시총_2028E', '괴리율_2028E']:
+                all_df[_c] = np.nan
+
+        df = apply_filters(all_df.copy(), rev_thresh, op_thresh, min_vol, markets, req_min_rev_500, req_op_profit, drop_huge_loss, op_size_label)
+
+        # 업종평균 PER 매핑 (df 업종은 all_df에서 이미 채워진 상태로 전파됨)
+        sector_per_map = get_sector_per_map()
+        df['업종평균PER'] = df['업종'].map(sector_per_map)
 
         # 메트릭 카드
         col1, col2, col3, col4 = st.columns(4)
