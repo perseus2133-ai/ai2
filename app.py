@@ -901,37 +901,42 @@ def scrape_fnguide_supplement(stock_code, stock_name=''):
             return {}
 
         tables = soup.find_all('table')
-        target_tbl = None
+        # FnGuide는 종종 IFRS(연결) Annual / IFRS(별도) Annual 두 테이블이 있고
+        # 종목에 따라 연결만, 별도만, 또는 둘 다 채워져 있음.
+        # 모든 Annual 테이블을 순회하며 빈칸을 메운다 (먼저 매칭된 값 유지).
+        annual_tables = []
         for tbl in tables:
             rows = tbl.find_all('tr')
             if len(rows) < 3: continue
             r0 = [c.get_text(strip=True) for c in rows[0].find_all(['th','td'])]
             combined = ' '.join(r0)
             if 'Annual' in combined and 'Quarter' not in combined:
-                target_tbl = tbl
-                break
-        if not target_tbl: return {}
-        rows = target_tbl.find_all('tr')
-        hcells = rows[1].find_all(['th','td'])
-        col_years = []
-        for c in hcells:
-            txt = c.get_text(strip=True)
-            m = re.search(r'(\d{4})[./]', txt)
-            col_years.append(int(m.group(1)) if m else None)
+                annual_tables.append(tbl)
+        if not annual_tables:
+            return {}
+
         dm = {}
-        for ri in range(2, min(10, len(rows))):
-            cells = rows[ri].find_all(['th','td'])
-            if not cells: continue
-            lb = cells[0].get_text(strip=True)
-            for mn in ['매출액', '영업이익']:
-                if mn in lb and '률' not in lb:
-                    if mn not in dm: dm[mn] = {}
-                    for ci, cell in enumerate(cells[1:]):
-                        if ci >= len(col_years) or col_years[ci] is None: continue
-                        yr = col_years[ci]
-                        val = parse_numeric(cell.get_text(strip=True))
-                        if pd.notna(val) and (yr not in dm[mn] or pd.isna(dm[mn][yr])):
-                            dm[mn][yr] = val
+        for tbl in annual_tables:
+            rows = tbl.find_all('tr')
+            hcells = rows[1].find_all(['th','td'])
+            col_years = []
+            for c in hcells:
+                txt = c.get_text(strip=True)
+                m = re.search(r'(\d{4})[./]', txt)
+                col_years.append(int(m.group(1)) if m else None)
+            for ri in range(2, min(10, len(rows))):
+                cells = rows[ri].find_all(['th','td'])
+                if not cells: continue
+                lb = cells[0].get_text(strip=True)
+                for mn in ['매출액', '영업이익']:
+                    if mn in lb and '률' not in lb:
+                        if mn not in dm: dm[mn] = {}
+                        for ci, cell in enumerate(cells[1:]):
+                            if ci >= len(col_years) or col_years[ci] is None: continue
+                            yr = col_years[ci]
+                            val = parse_numeric(cell.get_text(strip=True))
+                            if pd.notna(val) and (yr not in dm[mn] or pd.isna(dm[mn][yr])):
+                                dm[mn][yr] = val
         return dm
     except:
         return {}
