@@ -2269,6 +2269,15 @@ def render_stock_card(row, rank):
     # ── 적정시총 / 적정주가 / 괴리율 (2028E 영업이익 × 업종 멀티플 중앙값) ──
     fair_mc_str = format_mcap(fair_mc_28)
     fair_px_str = f'{int(round(fair_px_28)):,}원' if pd.notna(fair_px_28) and fair_px_28 > 0 else '-'
+    # 적정시총 표시에 업종 멀티플(peer median) 작게 부기
+    if pd.notna(peer_mult_28) and pd.notna(fair_mc_28):
+        fair_mc_html = (
+            f'{fair_mc_str}'
+            f'<span style="font-size:0.62rem;color:#94A3B8;font-weight:500;'
+            f'margin-left:4px;letter-spacing:0;">@{peer_mult_28:.1f}x</span>'
+        )
+    else:
+        fair_mc_html = fair_mc_str
     if pd.notna(gap_28):
         if gap_28 >= 30:    gap_color = '#34D399'; gap_str = f'▲ {gap_28:+.1f}%'
         elif gap_28 >= 0:   gap_color = '#34D399'; gap_str = f'{gap_28:+.1f}%'
@@ -2290,7 +2299,7 @@ def render_stock_card(row, rank):
         + pill('PBR', pbr_str)
         + pill('PEG', peg_str)
         + pill('ROE', roe_str, hi=True)
-        + pill("적정시총'28E", fair_mc_str, hi=True, tip=fair_tip)
+        + pill("적정시총'28E", fair_mc_html, hi=True, tip=fair_tip)
         + pill("적정주가'28E", fair_px_str, hi=True, tip=fair_px_tip)
         + pill("괴리율'28E", gap_html, hi=True, tip=gap_tip)
         + f'</div>'
