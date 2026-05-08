@@ -1,9 +1,9 @@
 {
-  "timestamp": "2026-05-08T06:45:10.680586+09:00",
+  "timestamp": "2026-05-09T06:40:02.018542+09:00",
   "markets": [
     "KOSPI",
     "KOSDAQ"
   ],
-  "total_analyzed": 3326,
-  "data_count": 2624
+  "total_analyzed": 3324,
+  "data_count": 2622
 }
