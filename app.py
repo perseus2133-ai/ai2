@@ -1650,6 +1650,116 @@ def compute_card_fields(df):
         (df['Forward_PER'] / fwd_g).round(2),
         np.nan,
     )
+
+    # ── 업종 상대 멀티플 (peer-relative multiples) — 추가 기능 ──────
+    # 기존 PEG/Forward PER 계산은 그대로 두고, 별도 컬럼만 부여한다.
+    # 실패해도 silent fail (기존 기능 영향 없도록).
+    try:
+        df = _apply_peer_multiples(df)
+    except Exception:
+        pass
+
+    return df
+
+
+def _apply_peer_multiples(df):
+    """compute_card_fields의 마지막 단계에서 호출되는 피어 멀티플 부여.
+    - universe_df는 같은 df (apply_filters 이후 검색 탭의 hits 등 부분집합)에서
+      뽑되, 업종이 비어 있으면 sector_map.json으로 즉석 보강.
+    - 결과 컬럼은 모두 'peer_*' 또는 fair_*/upside_pct/n_peers 등 새 이름이라
+      기존 컬럼과 충돌하지 않는다.
+    """
+    from industry_multiple import compute_for_target
+
+    peer_cols_init = {
+        'peer_pop_median':    np.nan,
+        'peer_pop_aggregate': np.nan,
+        'peer_pop_trimmed':   np.nan,
+        'fair_min':           np.nan,
+        'fair_median':        np.nan,
+        'fair_max':           np.nan,
+        'upside_pct':         np.nan,
+        'peer_year_used':     '',
+        'n_peers':            0,
+        'is_fallback_year':   False,
+        'peer_status':        '',
+    }
+    for c, default in peer_cols_init.items():
+        if c not in df.columns:
+            df[c] = default
+
+    # 업종 보강 (universe로 사용할 df 기준)
+    univ = df
+    if '업종' not in univ.columns or univ['업종'].isna().all():
+        try:
+            sector_map = _load_sector_map()
+            univ = univ.copy()
+            univ['업종'] = univ['종목코드'].astype(str).str.zfill(6).map(sector_map).fillna('기타')
+            df['업종']   = univ['업종']
+        except Exception:
+            return df
+
+    # 피어 모집단이 너무 작으면 (e.g. 검색 탭의 hits 1~3개) — universe로 부족
+    # 이 경우는 호출자(개별종목확인 탭)가 직접 all_df를 universe로 넣도록 별도
+    # 헬퍼 apply_peer_multiples_with_universe()가 있다.
+    for idx, row in df.iterrows():
+        try:
+            res = compute_for_target(row, univ)
+            for k, v in res.items():
+                df.at[idx, k] = v
+        except Exception:
+            continue
+    return df
+
+
+def apply_peer_multiples_with_universe(df, universe_df):
+    """피어 모집단(universe_df)을 외부에서 명시적으로 지정해 부여.
+    검색 탭처럼 df가 부분집합이고 universe는 전체 캐시일 때 사용.
+    universe_df에 '업종' 컬럼이 없으면 자동 보강.
+    """
+    from industry_multiple import compute_for_target
+
+    df = df.copy()
+    universe_df = universe_df.copy() if universe_df is not None else df
+
+    # universe에 업종 보강
+    if '업종' not in universe_df.columns or universe_df['업종'].isna().all():
+        try:
+            sector_map = _load_sector_map()
+            universe_df['업종'] = universe_df['종목코드'].astype(str).str.zfill(6).map(sector_map).fillna('기타')
+        except Exception:
+            return df
+    # df 자체에도 업종 보강
+    if '업종' not in df.columns or df['업종'].isna().all():
+        try:
+            sector_map = _load_sector_map()
+            df['업종'] = df['종목코드'].astype(str).str.zfill(6).map(sector_map).fillna('기타')
+        except Exception:
+            return df
+
+    peer_cols_init = {
+        'peer_pop_median':    np.nan,
+        'peer_pop_aggregate': np.nan,
+        'peer_pop_trimmed':   np.nan,
+        'fair_min':           np.nan,
+        'fair_median':        np.nan,
+        'fair_max':           np.nan,
+        'upside_pct':         np.nan,
+        'peer_year_used':     '',
+        'n_peers':            0,
+        'is_fallback_year':   False,
+        'peer_status':        '',
+    }
+    for c, default in peer_cols_init.items():
+        df[c] = default
+
+    for idx, row in df.iterrows():
+        try:
+            res = compute_for_target(row, universe_df)
+            for k, v in res.items():
+                df.at[idx, k] = v
+        except Exception:
+            continue
     return df
 
 
@@ -2309,6 +2419,90 @@ def render_stock_card(row, rank):
         + f'</div>'
     )
 
+    # ── 업종 상대 멀티플 (피어 비교) ─────────────────────────
+    peer_status   = row.get('peer_status', '') or ''
+    peer_n        = int(row.get('n_peers', 0) or 0)
+    peer_med      = row.get('peer_pop_median', np.nan)
+    peer_year     = row.get('peer_year_used', '') or ''
+    fair_min      = row.get('fair_min', np.nan)
+    fair_med      = row.get('fair_median', np.nan)
+    fair_max      = row.get('fair_max', np.nan)
+    upside        = row.get('upside_pct', np.nan)
+    is_fb         = bool(row.get('is_fallback_year', False))
+
+    if peer_status == 'no_sector':
+        peer_html = (
+            '<div class="qcd-peer-box" style="background:rgba(17,24,39,0.40);'
+            'border:1px dashed #4A5568;border-radius:10px;padding:8px 12px;'
+            'margin:8px 0;color:#94A3B8;font-size:0.78rem;">'
+            '⚪ 업종 미분류로 피어 비교 불가'
+            '</div>'
+        )
+    elif peer_status == 'no_peers':
+        peer_html = (
+            '<div class="qcd-peer-box" style="background:rgba(17,24,39,0.40);'
+            'border:1px dashed #4A5568;border-radius:10px;padding:8px 12px;'
+            'margin:8px 0;color:#94A3B8;font-size:0.78rem;">'
+            '⚪ 동일 업종 내 비교 가능한 피어가 없습니다'
+            '</div>'
+        )
+    elif peer_status == 'ok' and pd.notna(peer_med):
+        # Upside 색상
+        if pd.notna(upside) and upside >= 30:
+            up_emoji, up_color = '🟢', '#10B981'
+        elif pd.notna(upside) and upside <= -30:
+            up_emoji, up_color = '🔴', '#EF4444'
+        else:
+            up_emoji, up_color = '⚪', '#94A3B8'
+
+        # 적정시총 밴드 (format_number 재사용 — 억원 단위 → 조/억 환산)
+        fmin_str = format_number(fair_min) if pd.notna(fair_min) else '-'
+        fmed_str = format_number(fair_med) if pd.notna(fair_med) else '-'
+        fmax_str = format_number(fair_max) if pd.notna(fair_max) else '-'
+        up_str   = f'{upside:+.1f}%' if pd.notna(upside) else '-'
+
+        # 폴백 연도 라벨
+        fb_label = (
+            f'<span style="color:#FBBF24;font-size:0.7rem;font-weight:600;margin-left:6px;'
+            f'padding:1px 6px;border:1px solid rgba(251,191,36,0.4);border-radius:4px;">'
+            f'⚠️ {peer_year} 기준 (28E 결측)</span>'
+        ) if is_fb else (
+            f'<span style="color:#94A3B8;font-size:0.7rem;margin-left:6px;">{peer_year} 기준</span>'
+            if peer_year else ''
+        )
+
+        peer_html = (
+            f'<div class="qcd-peer-box" style="background:rgba(17,24,39,0.45);'
+            f'border:1px solid #4A5568;border-radius:10px;padding:10px 14px;'
+            f'margin:8px 0;display:flex;flex-wrap:wrap;align-items:center;gap:18px;">'
+
+            f'<div class="qcd-tech-label" style="display:flex;align-items:center;">'
+            f'🎯 업종 상대 멀티플{fb_label}</div>'
+
+            f'<div class="qcd-tech-item"><span class="k">피어 멀티플 (중앙값)</span>'
+            f'<span class="v" style="color:#62EFFF;">{peer_med:.1f}'
+            f' <span style="color:#94A3B8;font-size:0.74rem;font-weight:600;">(n={peer_n})</span>'
+            f'</span></div>'
+
+            f'<div class="qcd-tech-item"><span class="k">적정시총 밴드</span>'
+            f'<span class="v" style="font-size:0.92rem;">'
+            f'<span style="color:#94A3B8;">{fmin_str}</span>'
+            f' <span style="color:#FFFFFF;">∼ {fmed_str} ∼</span>'
+            f' <span style="color:#94A3B8;">{fmax_str}</span></span></div>'
+
+            f'<div style="flex:1;"></div>'
+
+            f'<div class="qcd-tech-item" style="text-align:right;">'
+            f'<span class="k">Upside (vs 현재 시총)</span>'
+            f'<span class="v" style="color:{up_color};font-size:1.1rem;">'
+            f'{up_emoji} {up_str}</span></div>'
+
+            f'</div>'
+        )
+    else:
+        # peer_status가 비어있거나 다른 케이스 — 새 캐시 컬럼이 없는 옛 데이터일 수 있음
+        peer_html = ''
+
     # ── 헤더 (rank, badge, name, code) ─────────────────────────
     header_html = (
         f'<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;'
@@ -2418,6 +2612,7 @@ def render_stock_card(row, rank):
         f'{header_html}'
         f'{stats_html}'
         f'{pills_html}'
+        f'{peer_html}'
         f'{main_grid}'
         f'</div>',
         unsafe_allow_html=True,
@@ -2605,6 +2800,13 @@ def main():
         sector_per_map = get_sector_per_map()
         df['업종평균PER'] = df['업종'].map(sector_per_map)
 
+        # 업종 상대 멀티플: universe = 전체 캐시(all_df) 기준으로 재계산
+        # (apply_filters 내부 호출은 filtered df를 universe로 쓰므로 피어가 좁다)
+        try:
+            df = apply_peer_multiples_with_universe(df, all_df)
+        except Exception:
+            pass
+
         # 메트릭 카드
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -2732,6 +2934,12 @@ def main():
                     # 거래량배수 폴백 (기존 캐시에 없을 수 있음)
                     if '거래량배수' not in hits.columns:
                         hits['거래량배수'] = np.nan
+
+                    # 업종 상대 멀티플: universe = 전체 캐시(all_df)
+                    try:
+                        hits = apply_peer_multiples_with_universe(hits, all_df)
+                    except Exception:
+                        pass
 
                     hits = hits.sort_values('가시성기준_정렬점수', ascending=False).reset_index(drop=True)
 
