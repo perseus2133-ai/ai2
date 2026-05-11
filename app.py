@@ -2105,6 +2105,7 @@ def render_stock_card(row, rank):
     fair_px_28   = row.get('적정주가_2028E', np.nan)
     gap_28       = row.get('괴리율_2028E', np.nan)
     peer_mult_28 = row.get('업종_2028E_멀티플_중앙값', np.nan)
+    ref_name_28  = str(row.get('멀티플기준_종목명_2028E', '') or '')
     is_fallback  = bool(row.get('멀티플_시장폴백_2028E', False))
 
     code_str = str(code).zfill(6)
@@ -2380,14 +2381,15 @@ def render_stock_card(row, rank):
     # ── 적정시총 / 적정주가 / 괴리율 (2028E 영업이익 × 업종 멀티플 중앙값) ──
     fair_mc_str = format_mcap(fair_mc_28)
     fair_px_str = f'{int(round(fair_px_28)):,}원' if pd.notna(fair_px_28) and fair_px_28 > 0 else '-'
-    # 적정시총 표시에 업종 멀티플(peer median) 작게 부기. 시장 폴백시 라벨 구분
+    # 적정시총 표시에 기준 멀티플 + 기준 종목명 작게 부기. 시장 폴백시 색상 구분
     if pd.notna(peer_mult_28) and pd.notna(fair_mc_28):
         _src_label = '*시장' if is_fallback else ''
         _src_color = '#F59E0B' if is_fallback else '#94A3B8'
+        _ref_disp  = f' {ref_name_28}' if ref_name_28 else ''
         fair_mc_html = (
             f'{fair_mc_str}'
             f'<span style="font-size:0.62rem;color:{_src_color};font-weight:500;'
-            f'margin-left:4px;letter-spacing:0;">@{peer_mult_28:.1f}x{_src_label}</span>'
+            f'margin-left:4px;letter-spacing:0;">@{peer_mult_28:.1f}x{_src_label}{_ref_disp}</span>'
         )
     else:
         fair_mc_html = fair_mc_str
@@ -2400,8 +2402,12 @@ def render_stock_card(row, rank):
     else:
         gap_html = '-'
     peer_mult_str = f'{peer_mult_28:.1f}x' if pd.notna(peer_mult_28) else '-'
-    _src_desc = "시장 전체 멀티플 중앙값(상하위 5% 트림)으로 폴백" if is_fallback else "업종 내 n≥3, 자기 제외 중앙값"
-    fair_tip = f"멀티플 기준값({peer_mult_str}) × 본 종목 2028E 영업이익. {_src_desc}."
+    _src_desc = (
+        f"시장 전체 시총 1위({ref_name_28})의 멀티플로 폴백 - 업종 내 비교군 없음"
+        if is_fallback else
+        f"업종 내 시총 1위({ref_name_28})의 멀티플 적용 (본인 제외)"
+    )
+    fair_tip = f"기준 멀티플({peer_mult_str}) × 본 종목 2028E 영업이익. {_src_desc}."
     fair_px_tip = "적정주가 = 현재가 × (적정시총 / 현재시총). 발행주식수 변동 없다고 가정."
     gap_tip  = "(적정시총 / 현재시총 − 1) × 100. 양수=저평가, 음수=고평가."
 
@@ -2735,40 +2741,53 @@ def main():
             all_df['업종'] = all_df['업종'].fillna('기타')
 
         # ── 업종별 2028E 영업이익 멀티플(시총/2028E OP) - 전체 모집단 기준 ──
-        # 1단계: 업종 내 n>=3 이면 업종 중앙값 (자기 자신 제외 leave-one-out)
-        # 2단계: n<3 이면 시장 전체 중앙값으로 폴백 (시각적으로 구분)
+        # 규칙: 업종 내 본인 제외, 시총 최대 종목(2028E 영업이익 보유)의 멀티플을 적용
+        #       업종 내 본인 외 valid 종목이 없으면 시장 전체 시총 최대 종목으로 폴백
         if '시가총액' in all_df.columns and '영업이익_2028' in all_df.columns:
             op28_all = pd.to_numeric(all_df['영업이익_2028'], errors='coerce')
             mc_all   = pd.to_numeric(all_df['시가총액'],   errors='coerce')
             all_df['멀티플_2028E'] = np.where((op28_all > 0) & (mc_all > 0), mc_all / op28_all, np.nan)
 
-            # 시장 전체 멀티플 중앙값 (이상치 트림: 상하위 5% 제외)
-            _all_valid = all_df['멀티플_2028E'].dropna()
-            if len(_all_valid) >= 10:
-                _q_lo, _q_hi = _all_valid.quantile(0.05), _all_valid.quantile(0.95)
-                _market_med = _all_valid[(_all_valid >= _q_lo) & (_all_valid <= _q_hi)].median()
-            elif len(_all_valid) > 0:
-                _market_med = _all_valid.median()
-            else:
-                _market_med = np.nan
+            # 업종별 상위 2개 (멀티플 valid + 시총 내림차순) — 본인이 1위인 경우 2위 사용
+            sector_top2 = {}
+            for sec, grp in all_df.groupby('업종'):
+                valid = grp[grp['멀티플_2028E'].notna()].sort_values('시가총액', ascending=False)
+                sector_top2[sec] = valid.head(2)
 
-            def _peer_median_excl_self(group):
-                vals = group['멀티플_2028E']
-                out = pd.Series(np.nan, index=group.index)
-                if vals.notna().sum() < 3:
-                    return out
-                for idx in group.index:
-                    others = vals.drop(idx).dropna()
-                    if len(others) >= 2:
-                        out.loc[idx] = others.median()
-                return out
+            # 시장 전체 상위 2개 (폴백용)
+            mkt_valid = all_df[all_df['멀티플_2028E'].notna()].sort_values('시가총액', ascending=False).head(2)
 
-            sector_med = (
-                all_df.groupby('업종', group_keys=False).apply(_peer_median_excl_self)
-            )
-            # 업종 산출 실패시 시장 전체 중앙값으로 폴백
-            all_df['업종_2028E_멀티플_중앙값'] = sector_med.fillna(_market_med)
-            all_df['멀티플_시장폴백_2028E'] = sector_med.isna() & pd.notna(_market_med)
+            ref_mult = []
+            ref_name = []
+            is_mkt_fb = []
+            for idx, sec in all_df['업종'].items():
+                # 1단계: 업종 내 (본인 제외) 시총 최대
+                top2 = sector_top2.get(sec)
+                picked = None
+                if top2 is not None and not top2.empty:
+                    if top2.iloc[0].name == idx:  # 본인이 1위
+                        if len(top2) >= 2:
+                            picked = top2.iloc[1]
+                    else:
+                        picked = top2.iloc[0]
+                fb = False
+                # 2단계: 업종에서 못 찾으면 시장 전체 시총 최대 (본인 제외)
+                if picked is None and not mkt_valid.empty:
+                    if mkt_valid.iloc[0].name == idx:
+                        if len(mkt_valid) >= 2:
+                            picked = mkt_valid.iloc[1]; fb = True
+                    else:
+                        picked = mkt_valid.iloc[0]; fb = True
+                if picked is not None:
+                    ref_mult.append(picked['멀티플_2028E'])
+                    ref_name.append(str(picked.get('종목명', '')))
+                    is_mkt_fb.append(fb)
+                else:
+                    ref_mult.append(np.nan); ref_name.append(''); is_mkt_fb.append(False)
+
+            all_df['업종_2028E_멀티플_중앙값']  = ref_mult   # 컬럼명은 유지(다운스트림 호환)
+            all_df['멀티플기준_종목명_2028E']  = ref_name
+            all_df['멀티플_시장폴백_2028E']    = is_mkt_fb
 
             all_df['적정시총_2028E'] = all_df['업종_2028E_멀티플_중앙값'] * op28_all
             all_df['괴리율_2028E'] = np.where(
@@ -2777,8 +2796,6 @@ def main():
                 np.nan
             )
             # 적정주가 = 현재가 × (적정시총 / 현재시총)
-            #   = 현재가 × (1 + 괴리율/100)
-            #   (발행주식수 = 시가총액 / 현재가 → 적정시총/발행주식수 동치)
             price_all = pd.to_numeric(all_df.get('현재가', np.nan), errors='coerce')
             all_df['적정주가_2028E'] = np.where(
                 pd.notna(all_df['적정시총_2028E']) & (mc_all > 0) & (price_all > 0),
@@ -2792,6 +2809,7 @@ def main():
             for _c in ['멀티플_2028E', '업종_2028E_멀티플_중앙값',
                        '적정시총_2028E', '괴리율_2028E', '적정주가_2028E']:
                 all_df[_c] = np.nan
+            all_df['멀티플기준_종목명_2028E'] = ''
             all_df['멀티플_시장폴백_2028E'] = False
 
         df = apply_filters(all_df.copy(), rev_thresh, op_thresh, min_vol, markets, req_min_rev_500, req_op_profit, drop_huge_loss, op_size_label)
@@ -3021,7 +3039,7 @@ def main():
 
             show_cols = ['종목명','종목코드','시장','현재가','Recent_Volume','거래량배수','시가총액','업종',
                 'PER','Forward_PER','PEG','PBR','ROE','업종평균PER',
-                '업종_2028E_멀티플_중앙값','적정시총_2028E','적정주가_2028E','괴리율_2028E','데이터_가용성',
+                '업종_2028E_멀티플_중앙값','멀티플기준_종목명_2028E','적정시총_2028E','적정주가_2028E','괴리율_2028E','데이터_가용성',
                 '매출액_성장률_2025','매출액_성장률_2026','매출액_성장률_2027','매출액_성장률_2028','매출액_최대성장률',
                 '영업이익_성장률_2025','영업이익_성장률_2026','영업이익_성장률_2027','영업이익_성장률_2028','영업이익_최대성장률','종합성장점수']
             ac = [c for c in show_cols if c in df.columns]
@@ -3038,7 +3056,8 @@ def main():
                 "PBR": st.column_config.NumberColumn("PBR", format="%.2f"),
                 "ROE": st.column_config.NumberColumn("ROE", format="%.1f%%"),
                 "업종평균PER": st.column_config.NumberColumn("업종PER", format="%.1f"),
-                "업종_2028E_멀티플_중앙값": st.column_config.NumberColumn("업종멀티플'28E(중앙)", format="%.1fx", help="시총/2028E 영업이익 (영업이익>0, 자기제외, n≥3)"),
+                "업종_2028E_멀티플_중앙값": st.column_config.NumberColumn("기준멀티플'28E", format="%.1fx", help="업종 내 시총 1위 종목(본인 제외)의 시총/2028E 영업이익. 업종에 비교군 없으면 시장 시총 1위로 폴백"),
+                "멀티플기준_종목명_2028E": st.column_config.TextColumn("기준종목", help="멀티플을 가져온 기준 종목명"),
                 "적정시총_2028E": st.column_config.NumberColumn("적정시총'28E(억)", format="%.0f", help="업종 멀티플 중앙값 × 본 종목 2028E 영업이익"),
                 "적정주가_2028E": st.column_config.NumberColumn("적정주가'28E(원)", format="%.0f", help="현재가 × (적정시총/현재시총), 발행주식수 동일 가정"),
                 "괴리율_2028E": st.column_config.NumberColumn("괴리율'28E", format="%+.1f%%", help="(적정시총/현재시총-1)×100, 양수=저평가"),
