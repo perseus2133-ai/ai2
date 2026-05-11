@@ -2769,7 +2769,17 @@ def main():
         if '시가총액' in all_df.columns and '영업이익_2028' in all_df.columns:
             op28_all = pd.to_numeric(all_df['영업이익_2028'], errors='coerce')
             mc_all   = pd.to_numeric(all_df['시가총액'],   errors='coerce')
-            all_df['멀티플_2028E'] = np.where((op28_all > 0) & (mc_all > 0), mc_all / op28_all, np.nan)
+
+            # 멀티플 평가에서 영구 제외할 메가캡 (시총이 워낙 커서
+            # 같은 구간 어디에 넣어도 비교 의미를 잃음 - 평가 대상 아님)
+            MEGACAP_EXCLUDED = {'005930', '000660'}  # 삼성전자, SK하이닉스
+            _excl_mask = all_df['종목코드'].astype(str).str.zfill(6).isin(MEGACAP_EXCLUDED)
+
+            # 피어 후보에서 자동 배제: 멀티플_2028E 자체를 NaN으로 → 정렬·중앙값 모두 자동 제외
+            all_df['멀티플_2028E'] = np.where(
+                (op28_all > 0) & (mc_all > 0) & (~_excl_mask),
+                mc_all / op28_all, np.nan
+            )
 
             def _bucket(m):
                 if pd.isna(m) or m <= 0: return ''
@@ -2847,6 +2857,14 @@ def main():
             # 본 종목의 영업이익_2028 자체가 없으면 적정시총 산출 불가
             no_op28 = ~(op28_all > 0)
             all_df.loc[no_op28, ['적정시총_2028E', '괴리율_2028E', '적정주가_2028E']] = np.nan
+
+            # 메가캡(삼성전자/SK하이닉스) 본인의 적정시총도 산출하지 않음
+            # (비교 의미가 없는 평가라 카드/테이블 모두 '-' 표시)
+            all_df.loc[_excl_mask, ['적정시총_2028E', '괴리율_2028E', '적정주가_2028E',
+                                     '업종_2028E_멀티플_중앙값', '멀티플기준_종목명_2028E',
+                                     '멀티플_소스_2028E']] = np.nan
+            all_df.loc[_excl_mask, '멀티플_피어수_2028E'] = 0
+            all_df.loc[_excl_mask, '멀티플_시장폴백_2028E'] = False
         else:
             for _c in ['멀티플_2028E', '업종_2028E_멀티플_중앙값',
                        '적정시총_2028E', '괴리율_2028E', '적정주가_2028E']:
