@@ -2108,6 +2108,7 @@ def render_stock_card(row, rank):
     ref_name_28  = str(row.get('멀티플기준_종목명_2028E', '') or '')
     ref_source_28 = str(row.get('멀티플_소스_2028E', '') or '')
     self_bucket_28 = str(row.get('시총구간_2028E', '') or '')
+    peer_count_28 = int(row.get('멀티플_피어수_2028E', 0) or 0)
 
     code_str = str(code).zfill(6)
     nurl = f"https://finance.naver.com/item/main.naver?code={code_str}"
@@ -2382,20 +2383,23 @@ def render_stock_card(row, rank):
     # ── 적정시총 / 적정주가 / 괴리율 (2028E 영업이익 × 업종 멀티플 중앙값) ──
     fair_mc_str = format_mcap(fair_mc_28)
     fair_px_str = f'{int(round(fair_px_28)):,}원' if pd.notna(fair_px_28) and fair_px_28 > 0 else '-'
-    # 적정시총 표시에 기준 멀티플 + 기준 종목명 + 소스(구간/업종/시장) 부기
+    # 적정시총 표시에 기준 멀티플 + 기준 종목명(+외 N개) + 소스(구간/업종/시장) 부기
     if pd.notna(peer_mult_28) and pd.notna(fair_mc_28):
         if ref_source_28 == 'bucket':
             _src_tag = f'({self_bucket_28})' if self_bucket_28 else ''
-            _src_color = '#94A3B8'   # 회색 (같은 업종+구간)
+            _src_color = '#94A3B8'
         elif ref_source_28 == 'sector':
             _src_tag = '*업종'
-            _src_color = '#FBBF24'   # 노랑 (업종은 같지만 구간 다름)
+            _src_color = '#FBBF24'
         elif ref_source_28 == 'market':
             _src_tag = '*시장'
-            _src_color = '#F59E0B'   # 주황 (시장 전체 폴백)
+            _src_color = '#F59E0B'
         else:
             _src_tag = ''; _src_color = '#94A3B8'
-        _ref_disp = f' {ref_name_28}' if ref_name_28 else ''
+        if ref_name_28:
+            _ref_disp = f' {ref_name_28}' + (f' 외 {peer_count_28 - 1}개' if peer_count_28 > 1 else '')
+        else:
+            _ref_disp = ''
         _tag_disp = f' {_src_tag}' if _src_tag else ''
         fair_mc_html = (
             f'{fair_mc_str}'
@@ -2414,12 +2418,13 @@ def render_stock_card(row, rank):
         gap_html = '-'
     peer_mult_str = f'{peer_mult_28:.1f}x' if pd.notna(peer_mult_28) else '-'
     _bkt_full = {'대':'대형(5조+)', '중':'중형(1~5조)', '소':'소형(~1조)'}.get(self_bucket_28, self_bucket_28)
+    _peer_phrase = f"시총 상위 {peer_count_28}개({ref_name_28} 등)의 멀티플 중앙값"
     if ref_source_28 == 'bucket':
-        _src_desc = f"같은 업종 · {_bkt_full} 구간 내 시총 1위({ref_name_28})의 멀티플 (본인 제외)"
+        _src_desc = f"같은 업종 · {_bkt_full} 구간 내 {_peer_phrase} (본인 제외)"
     elif ref_source_28 == 'sector':
-        _src_desc = f"같은 업종 시총 1위({ref_name_28}) 폴백 - 같은 구간에 비교군 없음"
+        _src_desc = f"같은 업종 {_peer_phrase} 폴백 - 같은 구간에 비교군 없음"
     elif ref_source_28 == 'market':
-        _src_desc = f"시장 전체 시총 1위({ref_name_28}) 폴백 - 업종에 비교군 없음"
+        _src_desc = f"시장 전체 {_peer_phrase} 폴백 - 업종에 비교군 없음"
     else:
         _src_desc = ""
     fair_tip = f"기준 멀티플({peer_mult_str}) × 본 종목 2028E 영업이익. {_src_desc}."
@@ -2773,47 +2778,55 @@ def main():
                 return '소'                   # ~1조
             all_df['시총구간_2028E'] = mc_all.apply(_bucket)
 
-            # 1단: (업종, 구간)별 시총 상위 2개
-            sb_top2 = {}
+            # 시총 내림차순으로 valid 멀티플 종목들을 미리 정렬해두고
+            # 각 단계별로 본인 제외 후 상위 N개의 멀티플 중앙값을 사용한다.
+            PEER_N = 5  # 시총 상위 N개 (가용 표본이 적으면 가용한 만큼)
+
+            sb_sorted = {}
             for (sec, bkt), grp in all_df.groupby(['업종', '시총구간_2028E']):
                 if not bkt: continue
                 valid = grp[grp['멀티플_2028E'].notna()].sort_values('시가총액', ascending=False)
                 if not valid.empty:
-                    sb_top2[(sec, bkt)] = valid.head(2)
+                    sb_sorted[(sec, bkt)] = valid
 
-            # 2단: 업종 전체 시총 상위 2개
-            sec_top2 = {}
+            sec_sorted = {}
             for sec, grp in all_df.groupby('업종'):
                 valid = grp[grp['멀티플_2028E'].notna()].sort_values('시가총액', ascending=False)
                 if not valid.empty:
-                    sec_top2[sec] = valid.head(2)
+                    sec_sorted[sec] = valid
 
-            # 3단: 시장 전체 시총 상위 2개
-            mkt_top2 = all_df[all_df['멀티플_2028E'].notna()].sort_values('시가총액', ascending=False).head(2)
+            mkt_sorted = all_df[all_df['멀티플_2028E'].notna()].sort_values('시가총액', ascending=False)
 
-            def _pick_excl_self(top2, self_idx):
-                if top2 is None or top2.empty: return None
-                if top2.iloc[0].name == self_idx:
-                    return top2.iloc[1] if len(top2) >= 2 else None
-                return top2.iloc[0]
+            def _pick_peers(sorted_df, self_idx, n=PEER_N):
+                """본인 제외 후 시총 상위 n개의 멀티플 중앙값과 대표 종목명/표본수 반환."""
+                if sorted_df is None or sorted_df.empty:
+                    return None, '', 0
+                others = sorted_df[sorted_df.index != self_idx]
+                if others.empty:
+                    return None, '', 0
+                peers = others.head(n)
+                return (
+                    float(peers['멀티플_2028E'].median()),
+                    str(peers.iloc[0].get('종목명', '')),
+                    int(len(peers)),
+                )
 
-            ref_mult, ref_name, ref_source = [], [], []
+            ref_mult, ref_name, ref_count, ref_source = [], [], [], []
             for idx, r in all_df.iterrows():
                 sec = r['업종']; bkt = r['시총구간_2028E']
-                picked = _pick_excl_self(sb_top2.get((sec, bkt)), idx); src = 'bucket'
-                if picked is None:
-                    picked = _pick_excl_self(sec_top2.get(sec), idx); src = 'sector'
-                if picked is None:
-                    picked = _pick_excl_self(mkt_top2, idx); src = 'market'
-                if picked is not None:
-                    ref_mult.append(picked['멀티플_2028E'])
-                    ref_name.append(str(picked.get('종목명', '')))
-                    ref_source.append(src)
+                m, n, c = _pick_peers(sb_sorted.get((sec, bkt)), idx); src = 'bucket'
+                if m is None:
+                    m, n, c = _pick_peers(sec_sorted.get(sec), idx); src = 'sector'
+                if m is None:
+                    m, n, c = _pick_peers(mkt_sorted, idx); src = 'market'
+                if m is not None:
+                    ref_mult.append(m); ref_name.append(n); ref_count.append(c); ref_source.append(src)
                 else:
-                    ref_mult.append(np.nan); ref_name.append(''); ref_source.append('')
+                    ref_mult.append(np.nan); ref_name.append(''); ref_count.append(0); ref_source.append('')
 
-            all_df['업종_2028E_멀티플_중앙값']  = ref_mult   # 컬럼명 유지(다운스트림 호환)
-            all_df['멀티플기준_종목명_2028E']  = ref_name
+            all_df['업종_2028E_멀티플_중앙값']  = ref_mult   # 컬럼명 유지(다운스트림 호환). 의미: 피어 N개의 중앙값
+            all_df['멀티플기준_종목명_2028E']  = ref_name   # 시총 1위 종목명 (라벨 대표)
+            all_df['멀티플_피어수_2028E']      = ref_count
             all_df['멀티플_소스_2028E']        = ref_source  # 'bucket' | 'sector' | 'market'
             # 후방호환
             all_df['멀티플_시장폴백_2028E']    = [s == 'market' for s in ref_source]
@@ -2840,6 +2853,7 @@ def main():
                 all_df[_c] = np.nan
             all_df['시총구간_2028E'] = ''
             all_df['멀티플기준_종목명_2028E'] = ''
+            all_df['멀티플_피어수_2028E'] = 0
             all_df['멀티플_소스_2028E'] = ''
             all_df['멀티플_시장폴백_2028E'] = False
 
@@ -3070,7 +3084,7 @@ def main():
 
             show_cols = ['종목명','종목코드','시장','현재가','Recent_Volume','거래량배수','시가총액','업종',
                 'PER','Forward_PER','PEG','PBR','ROE','업종평균PER',
-                '시총구간_2028E','업종_2028E_멀티플_중앙값','멀티플기준_종목명_2028E','멀티플_소스_2028E','적정시총_2028E','적정주가_2028E','괴리율_2028E','데이터_가용성',
+                '시총구간_2028E','업종_2028E_멀티플_중앙값','멀티플기준_종목명_2028E','멀티플_피어수_2028E','멀티플_소스_2028E','적정시총_2028E','적정주가_2028E','괴리율_2028E','데이터_가용성',
                 '매출액_성장률_2025','매출액_성장률_2026','매출액_성장률_2027','매출액_성장률_2028','매출액_최대성장률',
                 '영업이익_성장률_2025','영업이익_성장률_2026','영업이익_성장률_2027','영업이익_성장률_2028','영업이익_최대성장률','종합성장점수']
             ac = [c for c in show_cols if c in df.columns]
@@ -3088,8 +3102,9 @@ def main():
                 "ROE": st.column_config.NumberColumn("ROE", format="%.1f%%"),
                 "업종평균PER": st.column_config.NumberColumn("업종PER", format="%.1f"),
                 "시총구간_2028E": st.column_config.TextColumn("구간", help="대형(5조+)/중형(1~5조)/소형(~1조)"),
-                "업종_2028E_멀티플_중앙값": st.column_config.NumberColumn("기준멀티플'28E", format="%.1fx", help="(업종+구간)→업종→시장 순서로 시총 1위 종목(본인 제외) 멀티플 적용"),
-                "멀티플기준_종목명_2028E": st.column_config.TextColumn("기준종목", help="멀티플을 가져온 기준 종목명"),
+                "업종_2028E_멀티플_중앙값": st.column_config.NumberColumn("기준멀티플'28E", format="%.1fx", help="(업종+구간)→업종→시장 순서로 시총 상위 5개(본인 제외) 종목의 멀티플 중앙값"),
+                "멀티플기준_종목명_2028E": st.column_config.TextColumn("대표종목", help="피어 셋 중 시총 1위 종목명"),
+                "멀티플_피어수_2028E": st.column_config.NumberColumn("피어수", format="%d", help="중앙값 산정에 사용된 피어 개수 (최대 5)"),
                 "멀티플_소스_2028E": st.column_config.TextColumn("기준소스", help="bucket=업종+구간 / sector=업종 폴백 / market=시장 폴백"),
                 "적정시총_2028E": st.column_config.NumberColumn("적정시총'28E(억)", format="%.0f", help="업종 멀티플 중앙값 × 본 종목 2028E 영업이익"),
                 "적정주가_2028E": st.column_config.NumberColumn("적정주가'28E(원)", format="%.0f", help="현재가 × (적정시총/현재시총), 발행주식수 동일 가정"),
