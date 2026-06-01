@@ -2,8 +2,8 @@ name: 📊 Daily Stock Crawl
 
 on:
   schedule:
-    # 매일 오전 5시 KST (= 20:00 UTC 전날)
-    - cron: '0 20 * * *'
+    # 매일 오전 4시 KST (= 19:00 UTC 전날)
+    - cron: '0 19 * * *'
   workflow_dispatch:
     # 수동 실행 버튼 (GitHub Actions 탭에서 직접 실행 가능)
     inputs:
@@ -14,6 +14,11 @@ on:
 
 permissions:
   contents: write
+
+# Node.js 20 deprecation 대응: 액션들을 Node.js 24로 강제 실행
+# (2026-06-16부터 GitHub이 자동 전환 예정 - 미리 opt-in)
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
   crawl:
