@@ -1560,7 +1560,10 @@ def apply_filters(df, rev_thresh, op_thresh, min_vol, markets, req_min_rev_500=T
         df = df[df['영업이익_26이후_최대'].notna() & (df['영업이익_26이후_최대'] >= 1000)]
 
     def strict_financial_check(row):
-        yrs = [2023, 2024, 2025, 2026, 2027, 2028]
+        # 2023년은 메모리 사이클 침체 등 특수 상황으로 한국 사이클리컬 대형주
+        # (반도체·정유·해운 등) 다수가 일시 적자였음 → 옛 적자로 미래 평가에서
+        # 페널티 주지 않도록 2024년부터 검사.
+        yrs = [2024, 2025, 2026, 2027, 2028]
         for y in yrs:
             rv = row.get(f'매출액_{y}', np.nan)
             ov = row.get(f'영업이익_{y}', np.nan)
