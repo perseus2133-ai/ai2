@@ -63,6 +63,38 @@ def save_cache(data_df, meta):
     with open(META_FILE, 'w', encoding='utf-8') as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
 
+@st.cache_data(ttl=3600)
+def _load_snapshot_n_days_ago(days_ago=30):
+    """오늘 기준 days_ago 일 전(또는 가장 가까운 과거) 스냅샷 dict 반환.
+    반환: (snap_dict, snap_date_str). 없으면 ({}, None).
+    """
+    if not os.path.isdir(SNAPSHOT_DIR):
+        return {}, None
+    files = [f for f in os.listdir(SNAPSHOT_DIR) if f.endswith('.json')]
+    if not files:
+        return {}, None
+    today_d = now_kst().date()
+    target  = today_d - datetime.timedelta(days=days_ago)
+    candidates = []
+    for f in files:
+        try:
+            d = datetime.datetime.strptime(f.replace('.json',''), '%Y-%m-%d').date()
+            candidates.append((d, f))
+        except Exception:
+            pass
+    if not candidates:
+        return {}, None
+    candidates.sort()
+    # target 이하 중 가장 큰 날짜 (없으면 가장 오래된 것 사용)
+    before = [c for c in candidates if c[0] <= target]
+    snap_date, fname = before[-1] if before else candidates[0]
+    try:
+        with open(os.path.join(SNAPSHOT_DIR, fname), encoding='utf-8') as f:
+            return json.load(f), snap_date.isoformat()
+    except Exception:
+        return {}, None
+
+
 def load_cache():
     if not os.path.exists(CSV_FILE):
         return None
@@ -1774,6 +1806,33 @@ def format_number(v):
     if abs(v) >= 1_000_000: return f"{v/10000:.0f}조"
     return f"{v:,.0f}" if abs(v) >= 10000 else f"{v:,.1f}"
 
+def _make_revision_pill(pill_fn, rev_score, rev_26, rev_27, rev_28):
+    """Revision Score pill HTML 생성. rev_score=NaN이면 dim 처리."""
+    if pd.isna(rev_score):
+        return pill_fn("Revision", '<span style="color:#64748B;">-</span>',
+                       hi=True, tip="30일 전 스냅샷 비교 데이터 없음")
+    if rev_score >= 30:
+        c = '#34D399'; tag = '▲'
+    elif rev_score >= 5:
+        c = '#34D399'; tag = ''
+    elif rev_score > -5:
+        c = '#94A3B8'; tag = ''
+    elif rev_score > -30:
+        c = '#F87171'; tag = ''
+    else:
+        c = '#EF4444'; tag = '▼'
+    main = f'<span style="color:{c};">{tag} {rev_score:+.1f}%</span>'
+    # 보조: 26/27/28 개별 (있는 것만)
+    parts = []
+    for label, v in [('26', rev_26), ('27', rev_27), ('28', rev_28)]:
+        if pd.notna(v):
+            parts.append(f"'{label} {v:+.1f}%")
+    sub = f' <span style="font-size:0.6rem;color:#64748B;font-weight:500;margin-left:2px;">{" / ".join(parts)}</span>' if parts else ''
+    val_html = f'{main}{sub}'
+    tip = "Revision Score = 영업이익 컨센서스 30일 전 vs 현재 변화율의 가중 평균 (2026E 0.5 / 2027E 0.3 / 2028E 0.2)"
+    return pill_fn("Revision", val_html, hi=True, tip=tip)
+
+
 def format_mcap(v):
     """시가총액·적정시총 표시용: 'X조Y억' 형태 (단위: 억원 입력 가정)."""
     if pd.isna(v) or v is None: return "-"
@@ -2112,6 +2171,10 @@ def render_stock_card(row, rank):
     ref_source_28 = str(row.get('멀티플_소스_2028E', '') or '')
     self_bucket_28 = str(row.get('시총구간_2028E', '') or '')
     peer_count_28 = int(row.get('멀티플_피어수_2028E', 0) or 0)
+    rev_score    = row.get('Revision_Score', np.nan)
+    rev_26       = row.get('Revision_OP_2026', np.nan)
+    rev_27       = row.get('Revision_OP_2027', np.nan)
+    rev_28       = row.get('Revision_OP_2028', np.nan)
 
     code_str = str(code).zfill(6)
     nurl = f"https://finance.naver.com/item/main.naver?code={code_str}"
@@ -2445,6 +2508,7 @@ def render_stock_card(row, rank):
         + pill("적정시총'28E", fair_mc_html, hi=True, tip=fair_tip)
         + pill("적정주가'28E", fair_px_str, hi=True, tip=fair_px_tip)
         + pill("괴리율'28E", gap_html, hi=True, tip=gap_tip)
+        + _make_revision_pill(pill, rev_score, rev_26, rev_27, rev_28)
         + f'</div>'
     )
 
@@ -2878,6 +2942,32 @@ def main():
             all_df['멀티플_소스_2028E'] = ''
             all_df['멀티플_시장폴백_2028E'] = False
 
+        # ── Revision Score (컨센서스 상향률) ─────────────────────
+        # 30일 전 스냅샷 vs 현재 영업이익 컨센서스 변화율을 가중 평균
+        # 가중치: 2026E 0.5 / 2027E 0.3 / 2028E 0.2 (가까운 미래 우선)
+        # old > 0 인 연도만 사용 (음수/0 베이스는 변화율 정의 불안정)
+        snap, snap_date = _load_snapshot_n_days_ago(days_ago=30)
+        codes_zfill = all_df['종목코드'].astype(str).str.zfill(6) if '종목코드' in all_df.columns else pd.Series([''] * len(all_df), index=all_df.index)
+
+        weighted_sum = pd.Series(0.0, index=all_df.index)
+        weight_used  = pd.Series(0.0, index=all_df.index)
+        rev_weights  = {2026: 0.5, 2027: 0.3, 2028: 0.2}
+        for y, w in rev_weights.items():
+            new_v = pd.to_numeric(all_df.get(f'영업이익_{y}', np.nan), errors='coerce')
+            old_v = pd.to_numeric(
+                codes_zfill.map(lambda c, _y=y: (snap.get(c, {}) or {}).get(f'영업이익_{_y}')),
+                errors='coerce'
+            )
+            mask = pd.notna(new_v) & pd.notna(old_v) & (old_v > 0)
+            rev_y = pd.Series(np.nan, index=all_df.index)
+            rev_y.loc[mask] = (new_v.loc[mask] - old_v.loc[mask]) / old_v.loc[mask] * 100.0
+            all_df[f'Revision_OP_{y}'] = rev_y
+            weighted_sum.loc[mask] += rev_y.loc[mask] * w
+            weight_used.loc[mask]  += w
+
+        all_df['Revision_Score'] = np.where(weight_used > 0, weighted_sum / weight_used, np.nan)
+        all_df.attrs['snapshot_compare_date'] = snap_date or ''
+
         df = apply_filters(all_df.copy(), rev_thresh, op_thresh, min_vol, markets, req_min_rev_500, req_op_profit, drop_huge_loss, op_size_label)
 
         # 업종평균 PER 매핑 (df 업종은 all_df에서 이미 채워진 상태로 전파됨)
@@ -2927,6 +3017,7 @@ def main():
             with scol1:
                 sort_options = {
                     "🌟 미래 가시성 핵심성장 (1~3순위)": "가시성기준_정렬점수",
+                    "🚀 컨센서스 상향률 (Revision Score)": "Revision_Score",
                     "💎 영업이익 규모 (2026+)": "영업이익_26이후_최대",
                     "📊 매출+영업이익 합산점수": "종합성장점수",
                     "🎯 2028E 괴리율 (저평가 우선)": "괴리율_2028E",
@@ -3105,7 +3196,8 @@ def main():
 
             show_cols = ['종목명','종목코드','시장','현재가','Recent_Volume','거래량배수','시가총액','업종',
                 'PER','Forward_PER','PEG','PBR','ROE','업종평균PER',
-                '시총구간_2028E','업종_2028E_멀티플_중앙값','멀티플기준_종목명_2028E','멀티플_피어수_2028E','멀티플_소스_2028E','적정시총_2028E','적정주가_2028E','괴리율_2028E','데이터_가용성',
+                '시총구간_2028E','업종_2028E_멀티플_중앙값','멀티플기준_종목명_2028E','멀티플_피어수_2028E','멀티플_소스_2028E','적정시총_2028E','적정주가_2028E','괴리율_2028E',
+                'Revision_Score','Revision_OP_2026','Revision_OP_2027','Revision_OP_2028','데이터_가용성',
                 '매출액_성장률_2025','매출액_성장률_2026','매출액_성장률_2027','매출액_성장률_2028','매출액_최대성장률',
                 '영업이익_성장률_2025','영업이익_성장률_2026','영업이익_성장률_2027','영업이익_성장률_2028','영업이익_최대성장률','종합성장점수']
             ac = [c for c in show_cols if c in df.columns]
@@ -3130,6 +3222,10 @@ def main():
                 "적정시총_2028E": st.column_config.NumberColumn("적정시총'28E(억)", format="%.0f", help="업종 멀티플 중앙값 × 본 종목 2028E 영업이익"),
                 "적정주가_2028E": st.column_config.NumberColumn("적정주가'28E(원)", format="%.0f", help="현재가 × (적정시총/현재시총), 발행주식수 동일 가정"),
                 "괴리율_2028E": st.column_config.NumberColumn("괴리율'28E", format="%+.1f%%", help="(적정시총/현재시총-1)×100, 양수=저평가"),
+                "Revision_Score": st.column_config.NumberColumn("Revision", format="%+.1f%%", help="30일 전 vs 현재 영업이익 컨센서스 변화율의 가중 평균 (2026E×0.5 + 2027E×0.3 + 2028E×0.2)"),
+                "Revision_OP_2026": st.column_config.NumberColumn("Rev'26", format="%+.1f%%", help="2026E 영업이익 컨센서스 30일 변화율"),
+                "Revision_OP_2027": st.column_config.NumberColumn("Rev'27", format="%+.1f%%", help="2027E 영업이익 컨센서스 30일 변화율"),
+                "Revision_OP_2028": st.column_config.NumberColumn("Rev'28", format="%+.1f%%", help="2028E 영업이익 컨센서스 30일 변화율"),
                 "매출액_최대성장률": st.column_config.NumberColumn("매출MAX%", format="%.1f%%"),
                 "영업이익_최대성장률": st.column_config.NumberColumn("영업이익MAX%", format="%.1f%%"),
                 "종합성장점수": st.column_config.NumberColumn("종합점수", format="%.0f"),
