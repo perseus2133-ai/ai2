@@ -1570,10 +1570,15 @@ def crawl_all_data(progress_bar, status_text, markets, max_workers, resume=True)
 # ============================================================
 # 필터링 (캐시 데이터에서 즉시 필터링)
 # ============================================================
-def apply_filters(df, rev_thresh, op_thresh, min_vol, markets, req_min_rev_500=True, req_op_profit=True, drop_huge_loss=True, op_size_label="1000억 이상"):
+def apply_filters(df, rev_thresh, op_thresh, min_vol, markets, req_min_rev_500=True, req_op_profit=True, drop_huge_loss=True, op_size_label="1000억 이상", use_debt_filter=False, debt_thresh=200):
     if df.empty: return df
     if markets: df = df[df['시장'].isin(markets)]
     if min_vol > 0: df = df[df['Recent_Volume'] >= min_vol]
+
+    # 부채비율 필터 (옵션). 데이터 없는 종목은 통과시킴 (오발 방지)
+    if use_debt_filter and '부채비율' in df.columns:
+        debt = pd.to_numeric(df['부채비율'], errors='coerce')
+        df = df[debt.isna() | (debt <= debt_thresh)]
 
     # 2026년 이후(2026/2027/2028) 영업이익 최대값 컬럼 생성 → 규모 필터 & 정렬에 사용
     def _op_max_26(row):
@@ -2159,6 +2164,7 @@ def render_stock_card(row, rank):
     per_val     = row.get('PER', np.nan)
     pbr_val     = row.get('PBR', np.nan)
     roe_val     = row.get('ROE', np.nan)
+    debt_val    = row.get('부채비율', np.nan)
     sector_per  = row.get('업종평균PER', np.nan)
     fwd_per_val = row.get('Forward_PER', np.nan)
     peg_val     = row.get('PEG', np.nan)
@@ -2446,6 +2452,16 @@ def render_stock_card(row, rank):
 
     sec_per_str = f'{sector_per:.1f}' if pd.notna(sector_per) else '-'
 
+    # 부채비율 색상 (한국 평균 ~100% 기준)
+    if pd.notna(debt_val):
+        if debt_val <= 50:    debt_color = '#34D399'   # 우량
+        elif debt_val <= 150: debt_color = '#94A3B8'   # 적정
+        elif debt_val <= 250: debt_color = '#F59E0B'   # 주의
+        else:                 debt_color = '#EF4444'   # 위험
+        debt_html = f'<span style="color:{debt_color};">{debt_val:.0f}%</span>'
+    else:
+        debt_html = '-'
+
     # ── 적정시총 / 적정주가 / 괴리율 (2028E 영업이익 × 업종 멀티플 중앙값) ──
     fair_mc_str = format_mcap(fair_mc_28)
     fair_px_str = f'{int(round(fair_px_28)):,}원' if pd.notna(fair_px_28) and fair_px_28 > 0 else '-'
@@ -2505,6 +2521,7 @@ def render_stock_card(row, rank):
         + pill('PBR', pbr_str)
         + pill('PEG', peg_str)
         + pill('ROE', roe_str, hi=True)
+        + pill('부채비율', debt_html, hi=False, tip='네이버 금융 기준 가장 최근 분기 부채비율(%). ≤50% 우량 / ≤150% 적정 / ≤250% 주의 / >250% 위험')
         + pill("적정시총'28E", fair_mc_html, hi=True, tip=fair_tip)
         + pill("적정주가'28E", fair_px_str, hi=True, tip=fair_px_tip)
         + pill("괴리율'28E", gap_html, hi=True, tip=gap_tip)
@@ -2766,8 +2783,10 @@ def main():
 
         st.markdown("### 🛡️ 엄격한 재무 필터")
         req_min_rev_500 = st.checkbox("매출액 500억 이상 (매년)", value=True, help="어느 한 연도라도 매출액이 500억 미만이면 제외합니다.")
-        req_op_profit = st.checkbox("영업이익 흑자 필수", value=True, help="최근 3개년 및 컨센서스 중 한 번이라도 영업손실(적자)이면 제외합니다.")
+        req_op_profit = st.checkbox("영업이익 흑자 필수", value=True, help="2024년 이후 컨센서스/실적 중 한 번이라도 영업손실이면 제외 (2023은 사이클 침체로 검사 제외).")
         drop_huge_loss = st.checkbox("매출 초과 적자기업 제외", value=True, help="영업손실 규모가 매출액보다 큰 경우(바이오/성장주 특화) 무조건 제외합니다.")
+        use_debt_filter = st.checkbox("부채비율 필터 적용", value=False, help="부채비율(%) 임계값 이하만 노출. 한국 평균 ~100%, 우량주 50% 이하. 데이터 없는 종목은 제외 안 함.")
+        debt_thresh = st.slider("부채비율 임계값 (%)", min_value=50, max_value=500, value=200, step=10, disabled=not use_debt_filter, help="이 값 이하만 통과. 200% 디폴트 (한국 평균 100% 대비 여유). 데이터 부재 종목은 자동 통과.")
 
         st.markdown("### ⚡ 성능 설정")
         max_workers = st.slider("병렬 워커 수", 5, 100, 30, 5,
@@ -2968,7 +2987,7 @@ def main():
         all_df['Revision_Score'] = np.where(weight_used > 0, weighted_sum / weight_used, np.nan)
         all_df.attrs['snapshot_compare_date'] = snap_date or ''
 
-        df = apply_filters(all_df.copy(), rev_thresh, op_thresh, min_vol, markets, req_min_rev_500, req_op_profit, drop_huge_loss, op_size_label)
+        df = apply_filters(all_df.copy(), rev_thresh, op_thresh, min_vol, markets, req_min_rev_500, req_op_profit, drop_huge_loss, op_size_label, use_debt_filter=use_debt_filter, debt_thresh=debt_thresh)
 
         # 업종평균 PER 매핑 (df 업종은 all_df에서 이미 채워진 상태로 전파됨)
         sector_per_map = get_sector_per_map()
@@ -3195,7 +3214,7 @@ def main():
                     st.button("📥 누적기록 없음", disabled=True, use_container_width=True)
 
             show_cols = ['종목명','종목코드','시장','현재가','Recent_Volume','거래량배수','시가총액','업종',
-                'PER','Forward_PER','PEG','PBR','ROE','업종평균PER',
+                'PER','Forward_PER','PEG','PBR','ROE','부채비율','업종평균PER',
                 '시총구간_2028E','업종_2028E_멀티플_중앙값','멀티플기준_종목명_2028E','멀티플_피어수_2028E','멀티플_소스_2028E','적정시총_2028E','적정주가_2028E','괴리율_2028E',
                 'Revision_Score','Revision_OP_2026','Revision_OP_2027','Revision_OP_2028','데이터_가용성',
                 '매출액_성장률_2025','매출액_성장률_2026','매출액_성장률_2027','매출액_성장률_2028','매출액_최대성장률',
@@ -3213,6 +3232,7 @@ def main():
                 "PEG": st.column_config.NumberColumn("PEG", format="%.2f"),
                 "PBR": st.column_config.NumberColumn("PBR", format="%.2f"),
                 "ROE": st.column_config.NumberColumn("ROE", format="%.1f%%"),
+                "부채비율": st.column_config.NumberColumn("부채비율", format="%.0f%%", help="가장 최근 분기 부채비율(%) - 네이버 금융"),
                 "업종평균PER": st.column_config.NumberColumn("업종PER", format="%.1f"),
                 "시총구간_2028E": st.column_config.TextColumn("구간", help="대형(5조+)/중형(1~5조)/소형(~1조)"),
                 "업종_2028E_멀티플_중앙값": st.column_config.NumberColumn("기준멀티플'28E", format="%.1fx", help="(업종+구간)→업종→시장 순서로 시총 상위 5개(본인 제외) 종목의 멀티플 중앙값"),

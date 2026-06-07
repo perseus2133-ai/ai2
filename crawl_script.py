@@ -288,6 +288,12 @@ def scrape_naver_per_pbr_roe(stock_code):
                                 if pd.notna(val):
                                     result['ROE'] = round(val, 2)
                                     break
+                        elif '부채비율' in label and '부채비율' not in result:
+                            for cell in reversed(cells[1:]):
+                                val = parse_numeric(cell.get_text(strip=True))
+                                if pd.notna(val):
+                                    result['부채비율'] = round(val, 2)
+                                    break
     except:
         pass
     return result
@@ -575,16 +581,18 @@ def scrape_naver_consensus(stock_code, stock_name):
         result['데이터_가용성'] = f'{av}년치 존재'
         result['가용_연도수'] = av
 
-        # PER, PBR, ROE 크롤링
+        # PER, PBR, ROE, 부채비율 크롤링
         try:
             indicators = scrape_naver_per_pbr_roe(stock_code)
             result['PER'] = indicators.get('PER', np.nan)
             result['PBR'] = indicators.get('PBR', np.nan)
             result['ROE'] = indicators.get('ROE', np.nan)
+            result['부채비율'] = indicators.get('부채비율', np.nan)
         except:
             result['PER'] = np.nan
             result['PBR'] = np.nan
             result['ROE'] = np.nan
+            result['부채비율'] = np.nan
 
         # 보조지표·수급 통합 수집
         try:
