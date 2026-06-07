@@ -1570,10 +1570,25 @@ def crawl_all_data(progress_bar, status_text, markets, max_workers, resume=True)
 # ============================================================
 # 필터링 (캐시 데이터에서 즉시 필터링)
 # ============================================================
-def apply_filters(df, rev_thresh, op_thresh, min_vol, markets, req_min_rev_500=True, req_op_profit=True, drop_huge_loss=True, op_size_label="1000억 이상", use_debt_filter=False, debt_thresh=200):
+def _is_preferred_stock(name):
+    """한국 우선주 명칭 판별: '<회사명>[숫자]우[B]?'로 끝나는 형태.
+    예: 삼성전자우, 현대차우, 현대차2우B, LG화학우 등.
+    """
+    s = str(name or '').strip()
+    if len(s) < 2: return False
+    if s[-1] == '우': return True
+    if len(s) >= 2 and s[-2:] == '우B': return True
+    return False
+
+
+def apply_filters(df, rev_thresh, op_thresh, min_vol, markets, req_min_rev_500=True, req_op_profit=True, drop_huge_loss=True, op_size_label="1000억 이상", use_debt_filter=False, debt_thresh=200, exclude_preferred=True):
     if df.empty: return df
     if markets: df = df[df['시장'].isin(markets)]
     if min_vol > 0: df = df[df['Recent_Volume'] >= min_vol]
+
+    # 우선주 제외 (디폴트 ON). 보통주만 평가 → 영업이익/시총 정렬 노이즈 제거
+    if exclude_preferred and '종목명' in df.columns:
+        df = df[~df['종목명'].apply(_is_preferred_stock)]
 
     # 부채비율 필터 (옵션). 데이터 없는 종목은 통과시킴 (오발 방지)
     if use_debt_filter and '부채비율' in df.columns:
@@ -1811,8 +1826,10 @@ def format_number(v):
     if abs(v) >= 1_000_000: return f"{v/10000:.0f}조"
     return f"{v:,.0f}" if abs(v) >= 10000 else f"{v:,.1f}"
 
-def _make_revision_pill(pill_fn, rev_score, rev_26, rev_27, rev_28):
-    """Revision Score pill HTML 생성. rev_score=NaN이면 dim 처리."""
+def _make_revision_pill(pill_fn, rev_score, rev_26, rev_27, rev_28, sector_rev=None):
+    """Revision Score pill HTML 생성. rev_score=NaN이면 dim 처리.
+    sector_rev: 업종 Revision 중앙값. 본 종목과 비교해서 강/약 표시.
+    """
     if pd.isna(rev_score):
         return pill_fn("Revision", '<span style="color:#64748B;">-</span>',
                        hi=True, tip="30일 전 스냅샷 비교 데이터 없음")
@@ -1833,8 +1850,18 @@ def _make_revision_pill(pill_fn, rev_score, rev_26, rev_27, rev_28):
         if pd.notna(v):
             parts.append(f"'{label} {v:+.1f}%")
     sub = f' <span style="font-size:0.6rem;color:#64748B;font-weight:500;margin-left:2px;">{" / ".join(parts)}</span>' if parts else ''
-    val_html = f'{main}{sub}'
-    tip = "Revision Score = 영업이익 컨센서스 30일 전 vs 현재 변화율의 가중 평균 (2026E 0.5 / 2027E 0.3 / 2028E 0.2)"
+    # 업종 모멘텀: 본 종목 vs 업종 중앙값
+    sector_part = ''
+    if sector_rev is not None and pd.notna(sector_rev):
+        if sector_rev >= 5:    sec_c = '#34D399'
+        elif sector_rev > -5:  sec_c = '#94A3B8'
+        else:                  sec_c = '#F87171'
+        sector_part = (
+            f' <span style="font-size:0.6rem;color:#94A3B8;font-weight:500;margin-left:4px;">'
+            f'업종 <span style="color:{sec_c};">{sector_rev:+.1f}%</span></span>'
+        )
+    val_html = f'{main}{sub}{sector_part}'
+    tip = "Revision Score = 영업이익 컨센서스 30일 전 vs 현재 변화율의 가중 평균 (2026E 0.5 / 2027E 0.3 / 2028E 0.2). 업종 = 같은 업종 중앙값 (n≥5)"
     return pill_fn("Revision", val_html, hi=True, tip=tip)
 
 
@@ -2181,6 +2208,7 @@ def render_stock_card(row, rank):
     rev_26       = row.get('Revision_OP_2026', np.nan)
     rev_27       = row.get('Revision_OP_2027', np.nan)
     rev_28       = row.get('Revision_OP_2028', np.nan)
+    sector_rev   = row.get('업종_Revision_중앙값', np.nan)
 
     code_str = str(code).zfill(6)
     nurl = f"https://finance.naver.com/item/main.naver?code={code_str}"
@@ -2525,7 +2553,7 @@ def render_stock_card(row, rank):
         + pill("적정시총'28E", fair_mc_html, hi=True, tip=fair_tip)
         + pill("적정주가'28E", fair_px_str, hi=True, tip=fair_px_tip)
         + pill("괴리율'28E", gap_html, hi=True, tip=gap_tip)
-        + _make_revision_pill(pill, rev_score, rev_26, rev_27, rev_28)
+        + _make_revision_pill(pill, rev_score, rev_26, rev_27, rev_28, sector_rev)
         + f'</div>'
     )
 
@@ -2782,6 +2810,7 @@ def main():
         min_vol = vol_opts[vol_sel]
 
         st.markdown("### 🛡️ 엄격한 재무 필터")
+        exclude_preferred = st.checkbox("우선주 제외 (보통주만)", value=True, help="삼성전자우·현대차2우B 같은 우선주를 결과에서 제외합니다. 같은 회사가 보통주/우선주로 중복 노출되는 노이즈 제거.")
         req_min_rev_500 = st.checkbox("매출액 500억 이상 (매년)", value=True, help="어느 한 연도라도 매출액이 500억 미만이면 제외합니다.")
         req_op_profit = st.checkbox("영업이익 흑자 필수", value=True, help="2024년 이후 컨센서스/실적 중 한 번이라도 영업손실이면 제외 (2023은 사이클 침체로 검사 제외).")
         drop_huge_loss = st.checkbox("매출 초과 적자기업 제외", value=True, help="영업손실 규모가 매출액보다 큰 경우(바이오/성장주 특화) 무조건 제외합니다.")
@@ -2987,7 +3016,20 @@ def main():
         all_df['Revision_Score'] = np.where(weight_used > 0, weighted_sum / weight_used, np.nan)
         all_df.attrs['snapshot_compare_date'] = snap_date or ''
 
-        df = apply_filters(all_df.copy(), rev_thresh, op_thresh, min_vol, markets, req_min_rev_500, req_op_profit, drop_huge_loss, op_size_label, use_debt_filter=use_debt_filter, debt_thresh=debt_thresh)
+        # ── 업종 모멘텀: 업종별 Revision Score 중앙값 ─────────────
+        # 같은 업종 종목들의 컨센서스 상향이 집단적이면 → 테마 진입 시그널
+        # 이상치 영향 최소화 위해 중앙값 사용, 업종 내 표본 < 5면 신뢰 NaN
+        if '업종' in all_df.columns:
+            grp_sector_rev = all_df.groupby('업종')['Revision_Score']
+            sector_med = grp_sector_rev.transform('median')
+            sector_n   = grp_sector_rev.transform(lambda s: s.notna().sum())
+            all_df['업종_Revision_중앙값'] = np.where(sector_n >= 5, sector_med, np.nan)
+            all_df['업종_Revision_표본수'] = sector_n.astype(int)
+        else:
+            all_df['업종_Revision_중앙값'] = np.nan
+            all_df['업종_Revision_표본수'] = 0
+
+        df = apply_filters(all_df.copy(), rev_thresh, op_thresh, min_vol, markets, req_min_rev_500, req_op_profit, drop_huge_loss, op_size_label, use_debt_filter=use_debt_filter, debt_thresh=debt_thresh, exclude_preferred=exclude_preferred)
 
         # 업종평균 PER 매핑 (df 업종은 all_df에서 이미 채워진 상태로 전파됨)
         sector_per_map = get_sector_per_map()
@@ -3037,6 +3079,7 @@ def main():
                 sort_options = {
                     "🌟 미래 가시성 핵심성장 (1~3순위)": "가시성기준_정렬점수",
                     "🚀 컨센서스 상향률 (Revision Score)": "Revision_Score",
+                    "🌐 업종 모멘텀 (업종 Revision 중앙값)": "업종_Revision_중앙값",
                     "💎 영업이익 규모 (2026+)": "영업이익_26이후_최대",
                     "📊 매출+영업이익 합산점수": "종합성장점수",
                     "🎯 2028E 괴리율 (저평가 우선)": "괴리율_2028E",
@@ -3216,7 +3259,7 @@ def main():
             show_cols = ['종목명','종목코드','시장','현재가','Recent_Volume','거래량배수','시가총액','업종',
                 'PER','Forward_PER','PEG','PBR','ROE','부채비율','업종평균PER',
                 '시총구간_2028E','업종_2028E_멀티플_중앙값','멀티플기준_종목명_2028E','멀티플_피어수_2028E','멀티플_소스_2028E','적정시총_2028E','적정주가_2028E','괴리율_2028E',
-                'Revision_Score','Revision_OP_2026','Revision_OP_2027','Revision_OP_2028','데이터_가용성',
+                'Revision_Score','Revision_OP_2026','Revision_OP_2027','Revision_OP_2028','업종_Revision_중앙값','업종_Revision_표본수','데이터_가용성',
                 '매출액_성장률_2025','매출액_성장률_2026','매출액_성장률_2027','매출액_성장률_2028','매출액_최대성장률',
                 '영업이익_성장률_2025','영업이익_성장률_2026','영업이익_성장률_2027','영업이익_성장률_2028','영업이익_최대성장률','종합성장점수']
             ac = [c for c in show_cols if c in df.columns]
@@ -3246,6 +3289,8 @@ def main():
                 "Revision_OP_2026": st.column_config.NumberColumn("Rev'26", format="%+.1f%%", help="2026E 영업이익 컨센서스 30일 변화율"),
                 "Revision_OP_2027": st.column_config.NumberColumn("Rev'27", format="%+.1f%%", help="2027E 영업이익 컨센서스 30일 변화율"),
                 "Revision_OP_2028": st.column_config.NumberColumn("Rev'28", format="%+.1f%%", help="2028E 영업이익 컨센서스 30일 변화율"),
+                "업종_Revision_중앙값": st.column_config.NumberColumn("업종모멘텀", format="%+.1f%%", help="같은 업종 종목들의 Revision Score 중앙값 (n≥5). 테마 진입 시그널"),
+                "업종_Revision_표본수": st.column_config.NumberColumn("업종표본", format="%d", help="업종 모멘텀 산정에 쓰인 valid 종목 수"),
                 "매출액_최대성장률": st.column_config.NumberColumn("매출MAX%", format="%.1f%%"),
                 "영업이익_최대성장률": st.column_config.NumberColumn("영업이익MAX%", format="%.1f%%"),
                 "종합성장점수": st.column_config.NumberColumn("종합점수", format="%.0f"),
