@@ -158,22 +158,46 @@ def get_stock_list_naver(market="0"):
     return pd.DataFrame(all_stocks)
 
 
-def scrape_fnguide_supplement(stock_code, stock_name=''):
-    """FnGuide는 응답이 무거워서 timeout 넉넉히 + 1회 재시도."""
+def scrape_fnguide_supplement(stock_code, stock_name='', _max_retries=3):
+    """FnGuide는 응답이 무거워서 timeout 넉넉히 + 재시도 3회.
+    응답 받았는데 27E/28E가 둘 다 비어있으면 lite 페이지로 의심하여 한 번 더 시도.
+    """
     session = get_session()
     url = f'https://comp.fnguide.com/SVO2/ASP/SVD_Main.asp?pGB=1&gicode=A{stock_code}'
-    resp = None
-    for attempt in (1, 2):
+    best_dm = {}
+    for attempt in range(1, _max_retries + 1):
+        resp = None
         try:
-            resp = session.get(url, timeout=15)
-            if resp.status_code == 200:
-                break
+            resp = session.get(url, timeout=25)
         except Exception:
             resp = None
-            if attempt == 2:
-                return {}
-            time.sleep(0.4)
-    if resp is None or resp.status_code != 200:
+        if resp is None or resp.status_code != 200:
+            if attempt < _max_retries:
+                time.sleep(0.5 * attempt)
+            continue
+        # 정상 파싱 시도
+        dm_attempt = _parse_fnguide_response(resp, stock_name)
+        # 27/28 모두 채워졌으면 종료
+        op = dm_attempt.get('영업이익', {}) or {}
+        rv = dm_attempt.get('매출액', {}) or {}
+        has_27_28 = (op.get(2027) is not None or rv.get(2027) is not None) and \
+                    (op.get(2028) is not None or rv.get(2028) is not None)
+        # 더 많은 데이터가 들어온 결과를 유지
+        cur_keys = sum(len(v) for v in dm_attempt.values())
+        best_keys = sum(len(v) for v in best_dm.values())
+        if cur_keys > best_keys:
+            best_dm = dm_attempt
+        if has_27_28:
+            return best_dm
+        # 27/28 비어 있으면 한 번 더 (lite 응답 가능성)
+        if attempt < _max_retries:
+            time.sleep(0.4 * attempt)
+    return best_dm
+
+
+def _parse_fnguide_response(resp, stock_name=''):
+    """FnGuide 응답을 dm={매출액:{년도:값}, 영업이익:{...}} 형태로 반환."""
+    if resp is None:
         return {}
     try:
         resp.encoding = 'utf-8'
@@ -183,11 +207,14 @@ def scrape_fnguide_supplement(stock_code, stock_name=''):
             if tag:
                 page_name = tag.get_text(strip=True)
                 break
-        if stock_name and page_name and stock_name not in page_name and page_name not in stock_name:
+        # 종목명 정규화 비교: 공백·non-breaking-space(U+00A0)·대소문자 무시
+        # (LS ELECTRIC 같은 종목은 페이지 제목에 \xa0가 끼어있어서 단순 in 비교는 실패)
+        def _norm(s):
+            return ''.join(str(s or '').split()).upper()
+        sn = _norm(stock_name); pn = _norm(page_name)
+        if sn and pn and sn not in pn and pn not in sn:
             return {}
         tables = soup.find_all('table')
-        # FnGuide는 IFRS(연결) Annual / IFRS(별도) Annual 2개 테이블이 있고
-        # 종목에 따라 어느 한 쪽만 채워져 있음. 모든 테이블을 순회하며 빈칸을 메운다.
         annual_tables = []
         for tbl in tables:
             rows = tbl.find_all('tr')
@@ -221,7 +248,7 @@ def scrape_fnguide_supplement(stock_code, stock_name=''):
                             if pd.notna(val) and (yr not in dm[mn] or pd.isna(dm[mn][yr])):
                                 dm[mn][yr] = val
         return dm
-    except:
+    except Exception:
         return {}
 
 
