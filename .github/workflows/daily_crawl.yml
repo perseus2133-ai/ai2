@@ -2,8 +2,8 @@ name: 📊 Daily Stock Crawl
 
 on:
   schedule:
-    # 매일 오전 4시 KST (= 19:00 UTC 전날)
-    - cron: '0 19 * * *'
+    # 매일 오전 1시 KST (= 16:00 UTC 전날)
+    - cron: '0 16 * * *'
   workflow_dispatch:
     # 수동 실행 버튼 (GitHub Actions 탭에서 직접 실행 가능)
     inputs:
@@ -23,7 +23,7 @@ env:
 jobs:
   crawl:
     runs-on: ubuntu-latest
-    timeout-minutes: 60   # 업종 데이터 포함으로 60분으로 증가
+    timeout-minutes: 110  # FnGuide/네이버 응답 지연 대비 여유 (느린 날 60분 초과 취소 방지)
 
     steps:
       - name: ⬇️ 코드 체크아웃
