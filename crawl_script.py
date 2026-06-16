@@ -53,6 +53,12 @@ HEADERS = {
 
 thread_local = threading.local()
 
+# FnGuide 동시 요청 제한용 세마포어.
+# 메인 크롤은 워커 50개로 돌지만, FnGuide(comp.fnguide.com)는 해외 IP에서
+# 동시 요청이 많으면 rate limit/connect timeout으로 27·28E를 놓친다.
+# 네이버 호출은 50워커 그대로 두고 FnGuide만 동시 8개로 제한해 성공률을 확보.
+_FNGUIDE_SEM = threading.Semaphore(8)
+
 def get_session():
     if not hasattr(thread_local, "session"):
         thread_local.session = requests.Session()
@@ -175,7 +181,9 @@ def scrape_fnguide_supplement(stock_code, stock_name='', _max_retries=5):
         try:
             # connect 5s / read 12s 분리: 연결이 열리는 순간을 빠르게 잡고
             # 안 되면 즉시 재시도 (해외 IP 간헐 차단 우회)
-            resp = session.get(url, headers=fg_headers, timeout=(5, 12))
+            # 세마포어로 동시 FnGuide 요청을 8개로 제한 → rate limit 회피
+            with _FNGUIDE_SEM:
+                resp = session.get(url, headers=fg_headers, timeout=(5, 12))
         except Exception:
             resp = None
         if resp is None or resp.status_code != 200:
