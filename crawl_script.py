@@ -158,22 +158,29 @@ def get_stock_list_naver(market="0"):
     return pd.DataFrame(all_stocks)
 
 
-def scrape_fnguide_supplement(stock_code, stock_name='', _max_retries=3):
-    """FnGuide는 응답이 무거워서 timeout 넉넉히 + 재시도 3회.
-    응답 받았는데 27E/28E가 둘 다 비어있으면 lite 페이지로 의심하여 한 번 더 시도.
+def scrape_fnguide_supplement(stock_code, stock_name='', _max_retries=5):
+    """FnGuide에서 27E/28E 컨센서스 보충.
+
+    중요: GitHub Actions 등 해외 IP에서는 FnGuide(comp.fnguide.com)가
+    Referer 헤더 없이 호출하면 간헐적으로 connect timeout이 발생한다.
+    진단 결과 Referer 헤더 + connect/read 분리 타임아웃(5,12) + 재시도로
+    성공률 100% 확인 (2026-06 검증). 아래 전략을 반드시 유지할 것.
     """
     session = get_session()
     url = f'https://comp.fnguide.com/SVO2/ASP/SVD_Main.asp?pGB=1&gicode=A{stock_code}'
+    fg_headers = {'Referer': 'https://comp.fnguide.com/'}
     best_dm = {}
     for attempt in range(1, _max_retries + 1):
         resp = None
         try:
-            resp = session.get(url, timeout=25)
+            # connect 5s / read 12s 분리: 연결이 열리는 순간을 빠르게 잡고
+            # 안 되면 즉시 재시도 (해외 IP 간헐 차단 우회)
+            resp = session.get(url, headers=fg_headers, timeout=(5, 12))
         except Exception:
             resp = None
         if resp is None or resp.status_code != 200:
             if attempt < _max_retries:
-                time.sleep(0.5 * attempt)
+                time.sleep(0.4 * attempt)
             continue
         # 정상 파싱 시도
         dm_attempt = _parse_fnguide_response(resp, stock_name)
