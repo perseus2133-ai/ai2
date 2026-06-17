@@ -23,7 +23,7 @@ env:
 jobs:
   crawl:
     runs-on: ubuntu-latest
-    timeout-minutes: 110  # FnGuide/네이버 응답 지연 대비 여유 (느린 날 60분 초과 취소 방지)
+    timeout-minutes: 140  # FnGuide 동시성 세마포어(8)로 크롤 ~87분 소요 → 느린 날 여유 확보
 
     steps:
       - name: ⬇️ 코드 체크아웃
