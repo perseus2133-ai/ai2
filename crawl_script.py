@@ -863,6 +863,21 @@ def main():
     df = pd.DataFrame(results)
     # 업종 데이터 매핑 (인덱스 정수 접두어 제거 후 6자리)
     df['업종'] = df['종목코드'].astype(str).str.zfill(6).map(sector_map).fillna('기타')
+
+    # 3-A: 컨센서스 스냅샷은 '오늘 실제로 받은 값'을 정직하게 기록한다.
+    #      (carry-forward 보강 전에 저장 → 보강 소스가 raw fetch로 유지되어
+    #       stale 값이 무한히 전파되지 않음. staleness는 실제 fetch일 기준.)
+    print("스냅샷 저장 (raw fetch)...")
+    save_consensus_snapshot(df)
+
+    # 3-B: FnGuide 간헐 차단으로 27E·28E가 NaN인 칸을 최근 스냅샷의
+    #      마지막 좋은 값으로 보강한다 (consensus_persist.merge_carry_forward).
+    try:
+        from consensus_persist import merge_carry_forward
+        df = merge_carry_forward(df, SNAPSHOT_DIR, today=now_kst().date())
+    except Exception as e:
+        print(f"[WARN] carry-forward 실패(무시): {e}")
+
     df.to_csv(CSV_FILE, index=False, encoding='utf-8-sig')
 
     meta = {
@@ -876,13 +891,9 @@ def main():
 
     print(f"[{now_kst()}] ✅ 데이터 저장 완료! {len(results)}개 → {CSV_FILE}")
 
-    # 4단계: 누적 기록 저장
+    # 4단계: 누적 기록 저장 (보강된 df 사용)
     print("4단계: 누적 기록 저장...")
     save_history(df)
-
-    # 5단계: 컨센서스 스냅샷 저장 (Estimates Revision 분석용)
-    print("5단계: 컨센서스 스냅샷 저장...")
-    save_consensus_snapshot(df)
 
     print(f"[{now_kst()}] ✅ 전체 완료!")
 

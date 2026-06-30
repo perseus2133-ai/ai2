@@ -1556,12 +1556,23 @@ def crawl_all_data(progress_bar, status_text, markets, max_workers, resume=True)
     if not results: return pd.DataFrame()
 
     df = pd.DataFrame(results)
+
+    # 컨센서스 스냅샷은 '오늘 실제로 받은 값'을 보강 전에 저장 (정직한 source)
+    save_consensus_snapshot(df)
+
+    # FnGuide 간헐 차단으로 27E·28E가 NaN인 칸을 최근 스냅샷의 마지막 좋은
+    # 값으로 보강 (consensus_persist.merge_carry_forward) → "자꾸 사라짐" 방지
+    try:
+        from consensus_persist import merge_carry_forward
+        df = merge_carry_forward(df, SNAPSHOT_DIR, today=now_kst().date())
+    except Exception:
+        pass
+
     meta = {'markets': markets, 'total_analyzed': total_overall, 'data_count': len(results)}
     save_cache(df, meta)
 
-    # 누적 기록 + 컨센서스 스냅샷 저장 (Estimates Revision 분석용)
+    # 누적 기록 저장 (보강된 df 사용)
     save_history(df)
-    save_consensus_snapshot(df)
 
     status_text.markdown(f"✅ **완료!** 총 {len(results):,}개 종목 → 캐시 저장됨")
     return df
@@ -2344,9 +2355,28 @@ def render_stock_card(row, rank):
                 f'</div>'
             )
 
+    # ── 컨센 carry-forward(보강) staleness 표시 ────────────────
+    boost_label = ''
+    if bool(row.get('컨센_보강', False)):
+        asof = str(row.get('컨센_보강일', '') or '')
+        days_txt = ''
+        try:
+            if asof:
+                d = datetime.datetime.strptime(asof, '%Y-%m-%d').date()
+                days = (now_kst().date() - d).days
+                days_txt = f' · {days}일 전' if days > 0 else ' · 오늘'
+        except Exception:
+            pass
+        boost_label = (
+            f'<span title="FnGuide 일시 미수집으로 27E·28E를 최근 스냅샷({asof})에서 보강" '
+            f'style="margin-left:8px;color:#FBBF24;font-size:0.66rem;font-weight:600;'
+            f'padding:1px 6px;border:1px solid rgba(251,191,36,0.4);border-radius:4px;">'
+            f'⚠️ 27/28E 보강{days_txt}</span>'
+        )
+
     evidence_html = (
         f'<div class="qcd-evidence">'
-        f'<div class="head">재무 소스 (단위: 억원)</div>'
+        f'<div class="head">재무 소스 (단위: 억원){boost_label}</div>'
         f'<div class="evidence-scroll">'
         f'<div style="{hdr}"><div style="{lb}"></div>'
         f'<div style="{cc}">\'23</div><div style="{cc}">\'24</div>'
