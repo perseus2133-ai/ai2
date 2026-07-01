@@ -34,9 +34,18 @@ sys.path.insert(0, HERE)
 from crawl_script import _parse_fnguide_response, CSV_FILE, SNAPSHOT_DIR, now_kst, HEADERS
 
 FG_REFERER = {'Referer': 'https://comp.fnguide.com/'}
-REQ_INTERVAL = 0.8       # 요청 간격(초) — 천천히 해서 IP 한도 회피
-MAX_CONSEC_BLOCK = 5     # 연속 차단 N회면 한도 도달로 보고 중단
 NO_PUSH = '--no-push' in sys.argv
+
+# 요청 간격(초) — 기본 1.5s. FnGuide IP 한도가 낮고 한번 차단되면 쿨다운이
+# 길어서(시간~하루) 보수적으로. `--interval 2.0` 처럼 조정 가능.
+REQ_INTERVAL = 1.5
+for _i, _a in enumerate(sys.argv):
+    if _a == '--interval' and _i + 1 < len(sys.argv):
+        try:
+            REQ_INTERVAL = float(sys.argv[_i + 1])
+        except ValueError:
+            pass
+MAX_CONSEC_BLOCK = 4     # 연속 차단 N회면 한도 도달로 보고 중단 (오염 최소화)
 
 
 def is_block(resp, code):
@@ -61,16 +70,6 @@ def main():
     op27 = pd.to_numeric(df.get('영업이익_2027'), errors='coerce')
     op28 = pd.to_numeric(df.get('영업이익_2028'), errors='coerce')
 
-    # 27 또는 28 컨센이 (과거에라도) 존재한 종목 = 갱신 대상, 시총 큰 순
-    target = df[op27.notna() | op28.notna()].copy()
-    target['_mc'] = pd.to_numeric(target['시가총액'], errors='coerce').fillna(0)
-    target = target.sort_values('_mc', ascending=False).reset_index(drop=True)
-    print(f'📋 갱신 대상: {len(target)}개 (27/28 컨센 보유 종목, 시총 순)')
-    print(f'   요청 간격 {REQ_INTERVAL}s · 연속 차단 {MAX_CONSEC_BLOCK}회 시 중단\n')
-
-    session = requests.Session()
-    session.headers.update(HEADERS)
-
     today = now_kst().strftime('%Y-%m-%d')
     snap_path = os.path.join(SNAPSHOT_DIR, f'{today}.json')
     snap = {}
@@ -79,6 +78,28 @@ def main():
             snap = json.load(open(snap_path, encoding='utf-8'))
         except Exception:
             snap = {}
+
+    # 27 또는 28 컨센이 (과거에라도) 존재한 종목 = 갱신 대상
+    target = df[op27.notna() | op28.notna()].copy()
+    # 정렬: 가장 stale한 것(보강일 오래된 순) 먼저 → 매일 조금씩 돌려도 롤링 갱신.
+    #        보강일 없으면(원래 fresh였던 것) 맨 뒤, 그 안에서는 시총 큰 순.
+    if '컨센_보강일' in target.columns:
+        target['_asof'] = target['컨센_보강일'].fillna('9999-99-99').replace('', '9999-99-99')
+    else:
+        target['_asof'] = '9999-99-99'
+    target['_mc'] = pd.to_numeric(target['시가총액'], errors='coerce').fillna(0)
+    target = target.sort_values(['_asof', '_mc'], ascending=[True, False]).reset_index(drop=True)
+
+    # resume: 오늘 이미 fresh 받은 종목(오늘 스냅샷에 28E 존재)은 스킵
+    already = {c for c, e in snap.items() if e.get('영업이익_2028') is not None
+               or e.get('영업이익_2027') is not None}
+    target = target[~target['종목코드'].isin(already)].reset_index(drop=True)
+
+    print(f'📋 갱신 대상: {len(target)}개 (stale 오래된 순, 오늘 이미 받은 {len(already)}개 스킵)')
+    print(f'   요청 간격 {REQ_INTERVAL}s · 연속 차단 {MAX_CONSEC_BLOCK}회 시 중단\n')
+
+    session = requests.Session()
+    session.headers.update(HEADERS)
 
     got = 0
     consec = 0
