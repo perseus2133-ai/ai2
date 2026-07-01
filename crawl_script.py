@@ -59,6 +59,40 @@ thread_local = threading.local()
 # 네이버 호출은 50워커 그대로 두고 FnGuide만 동시 8개로 제한해 성공률을 확보.
 _FNGUIDE_SEM = threading.Semaphore(8)
 
+# FnGuide 회로 차단기(circuit breaker).
+# FnGuide는 한 IP에서 많이 때리면 '삼성전자 고정 페이지'로 차단하고 쿨다운이
+# 길다. GitHub Actions(미국 IP)는 특히 쉽게 차단되어, 2600종목을 계속 5회씩
+# 재시도하면 (a) 1~2시간 낭비 (b) 차단을 더 악화시킨다.
+# → 삼성 고정 페이지가 연속 N회 감지되면 이번 실행에서 FnGuide 호출을 전면
+#   중단한다. 27/28E는 carry-forward가 최근 스냅샷 값으로 채운다.
+_FG_BLOCK_THRESHOLD = 20
+_FG_lock = threading.Lock()
+_FG_consec_block = [0]
+_FG_tripped = threading.Event()
+
+def _fg_note_block():
+    with _FG_lock:
+        _FG_consec_block[0] += 1
+        if _FG_consec_block[0] >= _FG_BLOCK_THRESHOLD and not _FG_tripped.is_set():
+            _FG_tripped.set()
+            print(f"[FnGuide] 연속 {_FG_BLOCK_THRESHOLD}회 차단(삼성 고정 페이지) "
+                  f"→ 이번 실행 FnGuide 호출 중단. 27/28E는 carry-forward로 보강.")
+
+def _fg_note_ok():
+    with _FG_lock:
+        _FG_consec_block[0] = 0
+
+def _fg_is_block_page(resp, stock_code):
+    """응답이 '삼성전자 고정 페이지'(차단)인지 title로 판별."""
+    if resp is None:
+        return False
+    try:
+        t = BeautifulSoup(resp.text, 'lxml').find('title')
+        name = t.get_text(strip=True) if t else ''
+        return ('삼성전자' in name) and (str(stock_code).zfill(6) != '005930')
+    except Exception:
+        return False
+
 def get_session():
     if not hasattr(thread_local, "session"):
         thread_local.session = requests.Session()
@@ -172,11 +206,18 @@ def scrape_fnguide_supplement(stock_code, stock_name='', _max_retries=5):
     진단 결과 Referer 헤더 + connect/read 분리 타임아웃(5,12) + 재시도로
     성공률 100% 확인 (2026-06 검증). 아래 전략을 반드시 유지할 것.
     """
+    # 회로 차단기: 이미 이번 실행에서 FnGuide가 차단으로 판정됐으면 즉시 포기
+    # (네트워크 호출 안 함 → 시간 절약 + 차단 악화 방지, 27/28E는 carry-forward)
+    if _FG_tripped.is_set():
+        return {}
+
     session = get_session()
     url = f'https://comp.fnguide.com/SVO2/ASP/SVD_Main.asp?pGB=1&gicode=A{stock_code}'
     fg_headers = {'Referer': 'https://comp.fnguide.com/'}
     best_dm = {}
     for attempt in range(1, _max_retries + 1):
+        if _FG_tripped.is_set():
+            return best_dm
         resp = None
         try:
             # connect 5s / read 12s 분리: 연결이 열리는 순간을 빠르게 잡고
@@ -190,6 +231,12 @@ def scrape_fnguide_supplement(stock_code, stock_name='', _max_retries=5):
             if attempt < _max_retries:
                 time.sleep(0.4 * attempt)
             continue
+        # 삼성 고정 페이지(차단) 감지 → 회로 차단기 카운트, 재시도 무의미하므로 중단
+        if _fg_is_block_page(resp, stock_code):
+            _fg_note_block()
+            return best_dm
+        # 정상 응답 → 차단 카운터 리셋
+        _fg_note_ok()
         # 정상 파싱 시도
         dm_attempt = _parse_fnguide_response(resp, stock_name)
         # 27/28 모두 채워졌으면 종료
