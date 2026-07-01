@@ -56,8 +56,9 @@ thread_local = threading.local()
 # FnGuide 동시 요청 제한용 세마포어.
 # 메인 크롤은 워커 50개로 돌지만, FnGuide(comp.fnguide.com)는 해외 IP에서
 # 동시 요청이 많으면 rate limit/connect timeout으로 27·28E를 놓친다.
-# 네이버 호출은 50워커 그대로 두고 FnGuide만 동시 8개로 제한해 성공률을 확보.
-_FNGUIDE_SEM = threading.Semaphore(8)
+# 네이버 호출은 50워커 그대로 두고 FnGuide만 동시 4개로 제한해 성공률을 확보.
+# (8→4: 좋은 날 rate-limit 차단 확률을 더 낮춤. 크롤은 다소 길어짐)
+_FNGUIDE_SEM = threading.Semaphore(4)
 
 # FnGuide 회로 차단기(circuit breaker).
 # FnGuide는 한 IP에서 많이 때리면 '삼성전자 고정 페이지'로 차단하고 쿨다운이
