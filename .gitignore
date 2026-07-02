@@ -1,0 +1,4 @@
+.fnguide_stats.json
+__pycache__/
+*.pyc
+consensus_cache.pkl
