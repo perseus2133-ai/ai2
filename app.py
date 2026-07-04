@@ -779,6 +779,37 @@ HEADERS = {
 
 thread_local = threading.local()
 
+# FnGuide 회로 차단기 (crawl_script.py와 동일 로직).
+# FnGuide는 IP 한도 초과 시 모든 SVD_Main 요청을 302→wcomp(삼성 기본 페이지)로
+# 튕겨낸다. 차단 상태에서 계속 때리면 시간 낭비 + 쿨다운 악화이므로,
+# 삼성 미끼 페이지가 연속 N회 감지되면 이번 실행에서 FnGuide 호출을 전면 중단.
+# 27/28E 공백은 carry-forward(consensus_persist)가 최근 스냅샷으로 채운다.
+_FG_BLOCK_THRESHOLD = 20
+_FG_lock = threading.Lock()
+_FG_consec_block = [0]
+_FG_tripped = threading.Event()
+
+def _fg_note_block():
+    with _FG_lock:
+        _FG_consec_block[0] += 1
+        if _FG_consec_block[0] >= _FG_BLOCK_THRESHOLD:
+            _FG_tripped.set()
+
+def _fg_note_ok():
+    with _FG_lock:
+        _FG_consec_block[0] = 0
+
+def _fg_is_block_page(resp, stock_code):
+    """응답이 '삼성전자 고정 페이지'(차단 미끼)인지 title로 판별."""
+    if resp is None:
+        return False
+    try:
+        t = BeautifulSoup(resp.text, 'lxml').find('title')
+        name = t.get_text(strip=True) if t else ''
+        return ('삼성전자' in name) and (str(stock_code).zfill(6) != '005930')
+    except Exception:
+        return False
+
 def get_session():
     if not hasattr(thread_local, "session"):
         thread_local.session = requests.Session()
@@ -904,7 +935,11 @@ def parse_numeric(text):
 def scrape_fnguide_supplement(stock_code, stock_name=''):
     """FnGuide에서 2026E, 2027E, 2028E 컨센서스 데이터를 보조로 가져온다.
     FnGuide는 응답이 무거워서 timeout 넉넉히 + 1회 재시도.
+    회로차단기: 차단(삼성 미끼) 연속 감지 시 이번 실행에서 전면 중단.
     """
+    if _FG_tripped.is_set():
+        return {}
+
     session = get_session()
     url = f'https://comp.fnguide.com/SVO2/ASP/SVD_Main.asp?pGB=1&gicode=A{stock_code}'
     resp = None
@@ -920,6 +955,11 @@ def scrape_fnguide_supplement(stock_code, stock_name=''):
             time.sleep(0.4)
     if resp is None or resp.status_code != 200:
         return {}
+    # 삼성 미끼 페이지(차단) → 카운트만 하고 즉시 포기 (재시도 무의미)
+    if _fg_is_block_page(resp, stock_code):
+        _fg_note_block()
+        return {}
+    _fg_note_ok()
     try:
         resp.encoding = 'utf-8'
         soup = BeautifulSoup(resp.text, 'lxml')
@@ -1540,10 +1580,19 @@ def crawl_all_data(progress_bar, status_text, markets, max_workers, resume=True)
                 )
 
             # 부분 저장 (500 단위) — 중간에 멈춰도 이어서 수집 가능
+            # 중간 저장에도 carry-forward 적용: 여기서 크롤이 끊겨도
+            # 27/28E가 NaN 상태로 CSV에 남지 않도록 방어
             if cnt % 500 == 0 and cnt > 0:
                 with save_lock:
                     try:
                         partial_df = pd.DataFrame(results)
+                        try:
+                            from consensus_persist import merge_carry_forward
+                            partial_df = merge_carry_forward(
+                                partial_df, SNAPSHOT_DIR,
+                                today=now_kst().date(), verbose=False)
+                        except Exception:
+                            pass
                         save_cache(partial_df, {
                             'markets': markets, 'partial': True,
                             'progress': f'{cnt}/{total_remaining}',
@@ -2814,7 +2863,7 @@ def main():
             cnt = cache_info['total_stocks']
             st.markdown(f'<div class="cache-info">✅ 캐시 존재<br>{ts_str} 수집<br>{cnt}개 종목</div>', unsafe_allow_html=True)
         else:
-            st.markdown('<div class="cache-none">⚠️ 캐시 없음 — 데이터 수집 필요</div>', unsafe_allow_html=True)
+            st.markdown('<div class="cache-none">⚠️ 캐시 없음 — 새벽 자동 크롤 대기 중</div>', unsafe_allow_html=True)
 
         st.markdown("### 📊 시장 선택")
         markets = st.multiselect("분석 대상 시장", ["KOSPI", "KOSDAQ"], default=["KOSPI", "KOSDAQ"])
@@ -2847,48 +2896,21 @@ def main():
         use_debt_filter = st.checkbox("부채비율 필터 적용", value=False, help="부채비율(%) 임계값 이하만 노출. 한국 평균 ~100%, 우량주 50% 이하. 데이터 없는 종목은 제외 안 함.")
         debt_thresh = st.slider("부채비율 임계값 (%)", min_value=50, max_value=500, value=200, step=10, disabled=not use_debt_filter, help="이 값 이하만 통과. 200% 디폴트 (한국 평균 100% 대비 여유). 데이터 부재 종목은 자동 통과.")
 
-        st.markdown("### ⚡ 성능 설정")
-        max_workers = st.slider("병렬 워커 수", 5, 100, 30, 5,
-                                help="높을수록 빠르지만 timeout/IP차단 위험 증가. 30~40 권장")
-
-        st.markdown("---")
-
-        force_fresh = st.checkbox(
-            "처음부터 전체 재수집",
-            value=False,
-            help="체크 해제 시: 기존 캐시 유지하고 빠진 종목만 추가 수집(이어서). "
-                 "체크 시: 캐시 무시하고 전체 새로 수집."
-        )
-        crawl_btn = st.button(
-            "🔄 데이터 수집 (이어서)" if not force_fresh else "🔄 전체 재수집",
-            width="stretch",
-            help="중간에 멈춰도 500종목마다 자동 저장되니 다시 누르면 이어집니다.",
-        )
-
         st.markdown("---")
         st.markdown("""
         <div style="color:#64748b; font-size:0.8rem; text-align:center; line-height:1.6;">
-            <b>💡 사용법</b><br>
-            1) <b>데이터 수집</b> 버튼으로 캐시 생성<br>
-            2) 거래량/성장률 <b>즉시 필터링</b><br>
-            필터 변경 시 재크롤링 불필요!
+            <b>💡 데이터 갱신 안내</b><br>
+            매일 새벽 <b>자동 크롤</b>로 갱신됩니다.<br>
+            27/28E 보충: 집/회사 PC에서<br>
+            <b>27_28_갱신.bat</b> 실행 (주 1~2회)<br><br>
+            거래량/성장률 필터는 <b>즉시 반영</b>!
         </div>
         """, unsafe_allow_html=True)
 
     # ---- 메인 영역 ----
-
-    if crawl_btn:
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        start = time.time()
-        crawl_all_data(progress_bar, status_text, markets, max_workers,
-                       resume=(not force_fresh))
-        elapsed = time.time() - start
-        st.session_state['elapsed'] = elapsed
-        time.sleep(1)
-        progress_bar.empty()
-        status_text.empty()
-        st.rerun()
+    # (수동 '데이터 수집' 버튼 제거됨: 클라우드/해외 IP에서는 FnGuide가
+    #  차단되어 27/28E를 받지 못하고 캐시만 오염시키므로, 수집은
+    #  ① GitHub Actions 자동 크롤 ② 로컬 PC의 27_28_갱신.bat 로만 수행)
 
     cache = load_cache()
     if cache is not None:
@@ -3330,7 +3352,7 @@ def main():
             st.markdown("### 📅 누적 기록 (거래량 100만 이상)")
             history = load_history()
             if not history:
-                st.info("아직 누적 기록이 없습니다. 데이터 수집을 먼저 실행해주세요.")
+                st.info("아직 누적 기록이 없습니다. 새벽 자동 크롤이 돌면 채워집니다.")
             else:
                 for cat_name in ['미래가시성핵심성장', '매출+영업이익환산점수', '매출1년최대성장률', '영업이익1년최대성장률']:
                     cat_data = history.get(cat_name, {})
@@ -3362,17 +3384,18 @@ def main():
         st.markdown("""
         <div style="text-align:center; padding:60px 20px;">
             <div style="font-size:4rem; margin-bottom:16px;">🔍</div>
-            <h2 style="color:#818cf8; font-weight:700; margin-bottom:12px;">종목 발굴을 시작하세요</h2>
+            <h2 style="color:#818cf8; font-weight:700; margin-bottom:12px;">데이터 준비 중입니다</h2>
             <p style="color:#94a3b8; font-size:1.05rem; max-width:500px; margin:0 auto; line-height:1.8;">
-                왼쪽 사이드바에서 <b style="color:#a5b4fc;">🔄 데이터 수집</b> 버튼을 눌러<br>
-                전종목 컨센서스 데이터를 수집하세요. (~5분)<br><br>
-                수집 후에는 거래량/성장률 필터를 <b style="color:#34d399;">즉시</b> 변경할 수 있습니다!
+                아직 캐시 데이터가 없습니다.<br>
+                매일 새벽 <b style="color:#a5b4fc;">자동 크롤</b>이 데이터를 채워 넣습니다.<br>
+                (로컬 PC라면 <b style="color:#a5b4fc;">python crawl_script.py</b> 를 한 번 실행)<br><br>
+                데이터가 준비되면 거래량/성장률 필터를 <b style="color:#34d399;">즉시</b> 사용할 수 있습니다!
             </p>
             <div style="margin-top:32px; display:flex; justify-content:center; gap:20px; flex-wrap:wrap;">
                 <div style="background:rgba(99,102,241,0.1); border:1px solid rgba(99,102,241,0.2); border-radius:12px; padding:16px 24px; text-align:center;">
                     <div style="font-size:1.5rem;">1️⃣</div>
-                    <div style="color:#a5b4fc; font-weight:600; font-size:0.9rem; margin-top:4px;">데이터 수집</div>
-                    <div style="color:#64748b; font-size:0.8rem;">~5분 (1회만)</div>
+                    <div style="color:#a5b4fc; font-weight:600; font-size:0.9rem; margin-top:4px;">자동 크롤</div>
+                    <div style="color:#64748b; font-size:0.8rem;">매일 새벽 (GitHub Actions)</div>
                 </div>
                 <div style="background:rgba(99,102,241,0.1); border:1px solid rgba(99,102,241,0.2); border-radius:12px; padding:16px 24px; text-align:center;">
                     <div style="font-size:1.5rem;">2️⃣</div>
