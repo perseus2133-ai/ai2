@@ -951,9 +951,11 @@ def scrape_fnguide_supplement(stock_code, stock_name=''):
         except Exception:
             resp = None
             if attempt == 2:
+                _fg_note_block()   # 무응답(타임아웃)도 연속되면 차단으로 간주
                 return {}
             time.sleep(0.4)
     if resp is None or resp.status_code != 200:
+        _fg_note_block()
         return {}
     # 삼성 미끼 페이지(차단) → 카운트만 하고 즉시 포기 (재시도 무의미)
     if _fg_is_block_page(resp, stock_code):

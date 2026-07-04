@@ -76,7 +76,7 @@ def _fg_note_block():
         _FG_consec_block[0] += 1
         if _FG_consec_block[0] >= _FG_BLOCK_THRESHOLD and not _FG_tripped.is_set():
             _FG_tripped.set()
-            print(f"[FnGuide] 연속 {_FG_BLOCK_THRESHOLD}회 차단(삼성 고정 페이지) "
+            print(f"[FnGuide] 연속 {_FG_BLOCK_THRESHOLD}회 차단(미끼 페이지/무응답) "
                   f"→ 이번 실행 FnGuide 호출 중단. 27/28E는 carry-forward로 보강.")
 
 def _fg_note_ok():
@@ -229,6 +229,15 @@ def scrape_fnguide_supplement(stock_code, stock_name='', _max_retries=5):
         except Exception:
             resp = None
         if resp is None or resp.status_code != 200:
+            # 네트워크 실패(타임아웃/비200)도 차단기에 카운트.
+            # FnGuide가 미끼 페이지 대신 '무응답'으로 막는 날엔 이 경로만 타는데,
+            # 기존엔 차단기가 안 걸려 2600종목 × 5회 재시도로 기어가다
+            # 워크플로 타임아웃 취소 → 그날 네이버 데이터 커밋까지 유실됐음
+            # (2026-07-03 run 2h20m cancelled). 정상 응답 1회면 카운터 리셋되므로
+            # 일시적 블립으로는 트립되지 않는다.
+            _fg_note_block()
+            if _FG_tripped.is_set():
+                return best_dm
             if attempt < _max_retries:
                 time.sleep(0.4 * attempt)
             continue
