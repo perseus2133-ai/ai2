@@ -54,3 +54,9 @@ jobs:
           git diff --staged --quiet && echo "변경사항 없음" && exit 0
           git commit -m "🤖 Auto crawl: $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M KST')"
           git push
+
+      # push 이후에 실행: 데이터는 이미 안전하게 커밋된 상태에서,
+      # FnGuide fresh 27/28E가 0건이면 run을 실패 처리 → GitHub이
+      # 소유자에게 실패 메일을 자동 발송 (주소 변경/개편을 당일 인지)
+      - name: 🩺 FnGuide 헬스체크 (이상 시 run 실패 → 메일 알림)
+        run: python check_fnguide_health.py

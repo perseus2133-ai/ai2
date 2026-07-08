@@ -2930,6 +2930,23 @@ def main():
         cache_ts = cache['timestamp']
         elapsed = st.session_state.get('elapsed', 0)
 
+        # ── FnGuide 수집 헬스 배너 ─────────────────────────────
+        # 자동 크롤이 남긴 상태 파일. fresh 27/28E가 0건이면 주소 변경/
+        # 사이트 개편 가능성을 화면에서 바로 알린다 (메일 알림과 이중화).
+        try:
+            _hp = os.path.join(DATA_DIR, 'fnguide_health.json')
+            if os.path.exists(_hp):
+                with open(_hp, encoding='utf-8') as _hf:
+                    _h = json.load(_hf)
+                if not _h.get('ok', True):
+                    st.warning(
+                        f"🩺 FnGuide 27/28E 수집 이상 감지 ({_h.get('date', '?')}): fresh 0건 — "
+                        "주소 변경/사이트 개편 가능성. 카드의 27/28E는 carry-forward로 "
+                        "유지 중이므로 당장 문제는 없지만 확인이 필요합니다."
+                    )
+        except Exception:
+            pass
+
         # ── 업종 매핑은 필터 적용 전 all_df에 먼저 적용 ───────────
         # (멀티플 계산이 전체 모집단을 기준으로 이루어져야 사용자 필터에
         #  영향받지 않고 안정적으로 산출됨)

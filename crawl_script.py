@@ -32,6 +32,7 @@ CSV_FILE  = os.path.join(DATA_DIR, "consensus_data.csv")
 META_FILE = os.path.join(DATA_DIR, "meta.json")
 HISTORY_DIR = os.path.join(DATA_DIR, "history")
 SNAPSHOT_DIR = os.path.join(DATA_DIR, "consensus_snapshots")
+HEALTH_FILE = os.path.join(DATA_DIR, "fnguide_health.json")
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(HISTORY_DIR, exist_ok=True)
@@ -784,6 +785,41 @@ def save_consensus_snapshot(df):
         pass
 
 
+def write_fnguide_health(df):
+    """오늘 fresh 27/28E 수집량을 data/fnguide_health.json 에 기록.
+    0건이면 현재 엔드포인트를 1회 프로브해 진단 단서(리다이렉트 목적지,
+    title, 응답 크기)를 함께 남긴다 — 주소가 또 바뀌었을 때 다음 수사의
+    출발점이 되도록.
+    """
+    fresh27 = int(pd.to_numeric(df.get('영업이익_2027'), errors='coerce').notna().sum())
+    fresh28 = int(pd.to_numeric(df.get('영업이익_2028'), errors='coerce').notna().sum())
+    ok = (fresh27 + fresh28) > 0
+    health = {
+        'date': now_kst().strftime('%Y-%m-%d'),
+        'fresh_27': fresh27,
+        'fresh_28': fresh28,
+        'breaker_tripped': bool(_FG_tripped.is_set()),
+        'ok': ok,
+    }
+    if not ok:
+        probe = {}
+        try:
+            # 현재 사용 중인 엔드포인트 (scrape_fnguide_supplement와 동일 주소)
+            purl = 'https://wcomp.fnguide.com/CompanyInfo/Consensus?cmp_cd=005930'
+            r = requests.get(purl, headers=HEADERS, timeout=(5, 12), allow_redirects=False)
+            probe['status'] = r.status_code
+            probe['location'] = r.headers.get('Location', '')
+            probe['length'] = len(r.text or '')
+            m = re.search(r'<title>([^<]{0,60})', r.text or '')
+            probe['title'] = m.group(1).strip() if m else ''
+        except Exception as e:
+            probe['error'] = f'{type(e).__name__}: {e}'
+        health['probe'] = probe
+    with open(HEALTH_FILE, 'w', encoding='utf-8') as f:
+        json.dump(health, f, ensure_ascii=False, indent=2)
+    print(f"헬스 기록: fresh 27E={fresh27} 28E={fresh28} ok={ok}")
+
+
 # ============================================================
 # 누적 기록 저장
 # ============================================================
@@ -956,6 +992,13 @@ def main():
 
     if not results:
         print("[ERROR] 수집된 데이터 없음")
+        try:
+            with open(HEALTH_FILE, 'w', encoding='utf-8') as f:
+                json.dump({'date': now_kst().strftime('%Y-%m-%d'), 'ok': False,
+                           'error': '크롤 결과 0건 (네이버 수집 자체가 실패)'},
+                          f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
         return
 
     # 3단계: CSV 저장
@@ -968,6 +1011,16 @@ def main():
     #       stale 값이 무한히 전파되지 않음. staleness는 실제 fetch일 기준.)
     print("스냅샷 저장 (raw fetch)...")
     save_consensus_snapshot(df)
+
+    # 3-A': FnGuide 헬스 기록 — 오늘 fresh 27/28E 수집량을 남긴다.
+    #       워크플로 마지막 단계(check_fnguide_health.py)가 이 파일을 읽어
+    #       0건이면 run을 실패 처리 → GitHub이 소유자에게 실패 메일 발송.
+    #       2026-06-22 FnGuide 개편(구 URL 사망)을 6일 뒤에야 사람이
+    #       눈치챈 사고의 재발 방지책.
+    try:
+        write_fnguide_health(df)
+    except Exception as e:
+        print(f"[WARN] 헬스 기록 실패(무시): {e}")
 
     # 3-B: FnGuide 간헐 차단으로 27E·28E가 NaN인 칸을 최근 스냅샷의
     #      마지막 좋은 값으로 보강한다 (consensus_persist.merge_carry_forward).
