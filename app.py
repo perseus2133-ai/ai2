@@ -933,86 +933,18 @@ def parse_numeric(text):
     except: return np.nan
 
 def scrape_fnguide_supplement(stock_code, stock_name=''):
-    """FnGuide에서 2026E, 2027E, 2028E 컨센서스 데이터를 보조로 가져온다.
-    FnGuide는 응답이 무거워서 timeout 넉넉히 + 1회 재시도.
-    회로차단기: 차단(삼성 미끼) 연속 감지 시 이번 실행에서 전면 중단.
+    """FnGuide 신규 사이트(wcomp)에서 26E/27E/28E 컨센서스 보충.
+
+    FnGuide가 2026-06-22 사이트를 개편하면서 구 URL
+    (comp.fnguide.com/SVO2/ASP/SVD_Main.asp)이 죽었다 — gicode를 무시하고
+    기본종목(삼성전자) 페이지를 반환해 한동안 '차단'으로 오진했던 원인.
+    신규 구현(wcomp Consensus + perforTrend JSON 파싱)은 crawl_script.py에
+    있으므로 여기서는 위임한다 (단일 소스 유지).
     """
-    if _FG_tripped.is_set():
-        return {}
-
-    session = get_session()
-    url = f'https://comp.fnguide.com/SVO2/ASP/SVD_Main.asp?pGB=1&gicode=A{stock_code}'
-    resp = None
-    for attempt in (1, 2):
-        try:
-            resp = session.get(url, timeout=15)
-            if resp.status_code == 200:
-                break
-        except Exception:
-            resp = None
-            if attempt == 2:
-                _fg_note_block()   # 무응답(타임아웃)도 연속되면 차단으로 간주
-                return {}
-            time.sleep(0.4)
-    if resp is None or resp.status_code != 200:
-        _fg_note_block()
-        return {}
-    # 삼성 미끼 페이지(차단) → 카운트만 하고 즉시 포기 (재시도 무의미)
-    if _fg_is_block_page(resp, stock_code):
-        _fg_note_block()
-        return {}
-    _fg_note_ok()
     try:
-        resp.encoding = 'utf-8'
-        soup = BeautifulSoup(resp.text, 'lxml')
-
-        page_name = ''
-        for tag in [soup.find('h1', class_='giName'), soup.find('title')]:
-            if tag:
-                page_name = tag.get_text(strip=True)
-                break
-        if stock_name and page_name and stock_name not in page_name and page_name not in stock_name:
-            return {}
-
-        tables = soup.find_all('table')
-        # FnGuide는 종종 IFRS(연결) Annual / IFRS(별도) Annual 두 테이블이 있고
-        # 종목에 따라 연결만, 별도만, 또는 둘 다 채워져 있음.
-        # 모든 Annual 테이블을 순회하며 빈칸을 메운다 (먼저 매칭된 값 유지).
-        annual_tables = []
-        for tbl in tables:
-            rows = tbl.find_all('tr')
-            if len(rows) < 3: continue
-            r0 = [c.get_text(strip=True) for c in rows[0].find_all(['th','td'])]
-            combined = ' '.join(r0)
-            if 'Annual' in combined and 'Quarter' not in combined:
-                annual_tables.append(tbl)
-        if not annual_tables:
-            return {}
-
-        dm = {}
-        for tbl in annual_tables:
-            rows = tbl.find_all('tr')
-            hcells = rows[1].find_all(['th','td'])
-            col_years = []
-            for c in hcells:
-                txt = c.get_text(strip=True)
-                m = re.search(r'(\d{4})[./]', txt)
-                col_years.append(int(m.group(1)) if m else None)
-            for ri in range(2, min(10, len(rows))):
-                cells = rows[ri].find_all(['th','td'])
-                if not cells: continue
-                lb = cells[0].get_text(strip=True)
-                for mn in ['매출액', '영업이익']:
-                    if mn in lb and '률' not in lb:
-                        if mn not in dm: dm[mn] = {}
-                        for ci, cell in enumerate(cells[1:]):
-                            if ci >= len(col_years) or col_years[ci] is None: continue
-                            yr = col_years[ci]
-                            val = parse_numeric(cell.get_text(strip=True))
-                            if pd.notna(val) and (yr not in dm[mn] or pd.isna(dm[mn][yr])):
-                                dm[mn][yr] = val
-        return dm
-    except:
+        from crawl_script import scrape_fnguide_supplement as _fg_new
+        return _fg_new(stock_code, stock_name)
+    except Exception:
         return {}
 
 
