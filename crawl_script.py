@@ -199,72 +199,114 @@ def get_stock_list_naver(market="0"):
     return pd.DataFrame(all_stocks)
 
 
-def scrape_fnguide_supplement(stock_code, stock_name='', _max_retries=5):
-    """FnGuide에서 27E/28E 컨센서스 보충.
+def scrape_fnguide_supplement(stock_code, stock_name='', _max_retries=3):
+    """FnGuide 신규 사이트에서 26E/27E/28E 컨센서스 보충.
 
-    중요: GitHub Actions 등 해외 IP에서는 FnGuide(comp.fnguide.com)가
-    Referer 헤더 없이 호출하면 간헐적으로 connect timeout이 발생한다.
-    진단 결과 Referer 헤더 + connect/read 분리 타임아웃(5,12) + 재시도로
-    성공률 100% 확인 (2026-06 검증). 아래 전략을 반드시 유지할 것.
+    [2026-07-08 전면 교체 — 페이블 재진단]
+    FnGuide가 2026-06-22 사이트를 개편하면서 구 URL
+    (comp.fnguide.com/SVO2/ASP/SVD_Main.asp?gicode=A...)이 죽었다.
+    gicode를 무시하고 기본종목(삼성전자) 페이지를 반환해서 그동안
+    '봇차단/IP차단'으로 오진했으나, 실제로는 단순 URL 이사였다.
+    (깨끗한 모바일 IP + 실제 브라우저에서도 삼성 고정 → 차단 아님 확정)
+
+    신규 엔드포인트:
+      https://wcomp.fnguide.com/CompanyInfo/Consensus?cmp_cd={6자리}
+    페이지 인라인 JS의 perforTrend JSON에 2023~2028E 연간
+    매출액/영업이익이 통째로 들어있다 (HTML 테이블 파싱 불필요).
     """
-    # 회로 차단기: 이미 이번 실행에서 FnGuide가 차단으로 판정됐으면 즉시 포기
-    # (네트워크 호출 안 함 → 시간 절약 + 차단 악화 방지, 27/28E는 carry-forward)
     if _FG_tripped.is_set():
         return {}
 
     session = get_session()
-    url = f'https://comp.fnguide.com/SVO2/ASP/SVD_Main.asp?pGB=1&gicode=A{stock_code}'
-    fg_headers = {'Referer': 'https://comp.fnguide.com/'}
-    best_dm = {}
+    url = f'https://wcomp.fnguide.com/CompanyInfo/Consensus?cmp_cd={str(stock_code).zfill(6)}'
+    fg_headers = {'Referer': 'https://wcomp.fnguide.com/'}
     for attempt in range(1, _max_retries + 1):
         if _FG_tripped.is_set():
-            return best_dm
+            return {}
         resp = None
         try:
-            # connect 5s / read 12s 분리: 연결이 열리는 순간을 빠르게 잡고
-            # 안 되면 즉시 재시도 (해외 IP 간헐 차단 우회)
-            # 세마포어로 동시 FnGuide 요청을 8개로 제한 → rate limit 회피
             with _FNGUIDE_SEM:
                 resp = session.get(url, headers=fg_headers, timeout=(5, 12))
         except Exception:
             resp = None
-        if resp is None or resp.status_code != 200:
-            # 네트워크 실패(타임아웃/비200)도 차단기에 카운트.
-            # FnGuide가 미끼 페이지 대신 '무응답'으로 막는 날엔 이 경로만 타는데,
-            # 기존엔 차단기가 안 걸려 2600종목 × 5회 재시도로 기어가다
-            # 워크플로 타임아웃 취소 → 그날 네이버 데이터 커밋까지 유실됐음
-            # (2026-07-03 run 2h20m cancelled). 정상 응답 1회면 카운터 리셋되므로
-            # 일시적 블립으로는 트립되지 않는다.
+        if resp is None or resp.status_code != 200 or len(resp.text or '') < 5000:
+            # 네트워크 실패/404(1.2KB 에러 페이지)는 차단기에 카운트 —
+            # 사이트 전체가 죽은 날 2600종목이 기어가는 것 방지 (carry-forward가 커버)
             _fg_note_block()
             if _FG_tripped.is_set():
-                return best_dm
+                return {}
             if attempt < _max_retries:
                 time.sleep(0.4 * attempt)
             continue
-        # 삼성 고정 페이지(차단) 감지 → 회로 차단기 카운트, 재시도 무의미하므로 중단
-        if _fg_is_block_page(resp, stock_code):
-            _fg_note_block()
-            return best_dm
-        # 정상 응답 → 차단 카운터 리셋
         _fg_note_ok()
-        # 정상 파싱 시도
-        dm_attempt = _parse_fnguide_response(resp, stock_name)
-        # 27/28 모두 채워졌으면 종료
-        op = dm_attempt.get('영업이익', {}) or {}
-        rv = dm_attempt.get('매출액', {}) or {}
-        has_27_28 = (op.get(2027) is not None or rv.get(2027) is not None) and \
-                    (op.get(2028) is not None or rv.get(2028) is not None)
-        # 더 많은 데이터가 들어온 결과를 유지
-        cur_keys = sum(len(v) for v in dm_attempt.values())
-        best_keys = sum(len(v) for v in best_dm.values())
-        if cur_keys > best_keys:
-            best_dm = dm_attempt
-        if has_27_28:
-            return best_dm
-        # 27/28 비어 있으면 한 번 더 (lite 응답 가능성)
-        if attempt < _max_retries:
-            time.sleep(0.4 * attempt)
-    return best_dm
+        return _parse_fnguide_consensus_json(resp, stock_name)
+    return {}
+
+
+def _extract_js_object(text, key):
+    """인라인 JS에서 `key : { ... }` 블록을 중괄호 균형 매칭으로 추출."""
+    i = text.find(key)
+    if i < 0:
+        return None
+    j = text.find('{', i)
+    if j < 0:
+        return None
+    depth = 0
+    for k in range(j, min(len(text), j + 200_000)):
+        c = text[k]
+        if c == '{':
+            depth += 1
+        elif c == '}':
+            depth -= 1
+            if depth == 0:
+                return text[j:k + 1]
+    return None
+
+
+def _parse_fnguide_consensus_json(resp, stock_name=''):
+    """신규 Consensus 페이지의 perforTrend JSON을
+    dm={매출액:{년도:값}, 영업이익:{...}} 형태로 변환."""
+    if resp is None:
+        return {}
+    try:
+        resp.encoding = 'utf-8'
+        html = resp.text
+        # 종목 검증: <title>회사명(코드) | ... (개편 후에도 유지됨)
+        m = re.search(r'<title>([^<(]{1,40})', html)
+        page_name = m.group(1).strip() if m else ''
+        def _norm(s):
+            return ''.join(str(s or '').split()).upper()
+        sn = _norm(stock_name); pn = _norm(page_name)
+        if sn and pn and sn not in pn and pn not in sn:
+            return {}
+
+        raw = _extract_js_object(html, 'perforTrend')
+        if not raw:
+            return {}
+        obj = json.loads(raw)
+        header = obj.get('header') or []
+        # VALn → 연도 매핑 (YYMM='2027/12')
+        col_year = {}
+        for h in header:
+            yymm = str(h.get('YYMM') or '')
+            cd = h.get('CD')
+            ym = re.match(r'(\d{4})/', yymm)
+            if cd and ym:
+                col_year[cd] = int(ym.group(1))
+        dm = {}
+        for row in obj.get('data') or []:
+            name = str(row.get('NAME') or '').strip()
+            if name not in ('매출액', '영업이익'):
+                continue
+            if name not in dm:
+                dm[name] = {}
+            for cd, yr in col_year.items():
+                val = parse_numeric(str(row.get(cd) if row.get(cd) is not None else ''))
+                if pd.notna(val) and (yr not in dm[name] or pd.isna(dm[name][yr])):
+                    dm[name][yr] = val
+        return dm
+    except Exception:
+        return {}
 
 
 def _parse_fnguide_response(resp, stock_name=''):

@@ -1,29 +1,25 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-집 PC(한국 IP) 전용 — 27E/28E 컨센서스 FnGuide 자가적응 갱신
+수동 27E/28E 컨센서스 갱신 (백업용 — 평소엔 GitHub Actions가 자동 수행)
 =================================================================
-[배경 — 2026-07 페이블 재진단으로 확정]
-- 27E/28E 연간 컨센서스는 FnGuide(comp.fnguide.com)에만 존재.
-  (네이버/wisereport = 26E까지, 퀀트킹 CSV export = 26년1Q(E)까지)
-- FnGuide는 '지역 차단'이 아니라 **누적 요청 기반 소프트 봇차단**:
-  한 IP에서 요청이 쌓이면 gicode를 무시하고 기본종목(삼성전자,
-  defaultCompanyCode=005930) 페이지를 반환한다. requests든 실제
-  브라우저(Playwright)든 동일 → 도구 문제가 아니라 IP 상태 문제.
-- 한번 차단되면 쿨다운이 김(시간~하루). 따라서 **차단에 부딪히기 전에
-  스스로 멈추는 것**이 핵심 전략이다.
+[2026-07-08 진실 확정 — 페이블 재진단]
+'차단'은 처음부터 없었다. FnGuide가 2026-06-22 사이트를 개편하면서
+구 URL(comp.fnguide.com/SVO2/ASP/SVD_Main.asp?gicode=)이 죽고, 어떤
+gicode를 넣어도 기본종목(삼성전자) 페이지가 나왔던 것. 신규 URL은
+  https://wcomp.fnguide.com/CompanyInfo/Consensus?cmp_cd={6자리}
+이며 crawl_script.scrape_fnguide_supplement 가 이걸 쓰도록 교체됐다.
+→ GitHub Actions 자동 크롤이 27/28E를 다시 받는다. 이 스크립트는
+  자동 크롤 실패 시 수동 보충용 백업이다.
 
-[동작 — 자가 적응]
-  1. 시작 시 git pull (GitHub Actions가 푸시한 최신 데이터/코드 동기화)
-  2. 학습 파일(.fnguide_stats.json, 로컬 전용)에서 이 PC의 안전 한도 로드
-  3. 갱신 대상: 27/28 보유 종목 중 최근 7일 내 fresh 못 받은 것, stale 순
-  4. 랜덤 지터 간격으로 직렬 요청, **안전 한도에서 자발적 중단** (IP 청정 유지)
-     - 차단 감지 시: 즉시 중단 + 한도를 70%로 하향 학습
-     - 무차단 완주 시: 한도를 15% 상향 학습 (자동 튜닝)
-  5. fresh → 오늘 스냅샷 저장 → carry-forward로 CSV 보강 → git push
+[동작]
+  1. 시작 시 git pull → 대상: 27/28 보유 종목 중 최근 7일 fresh 없는 것
+  2. scrape_fnguide_supplement(신규 엔드포인트)로 직렬 수집
+  3. 연속 실패 시 중단(사이트 장애 대비), 한도 학습(스로틀 재등장 대비)
+  4. fresh → 오늘 스냅샷 → carry-forward로 CSV 보강 → git push
 
-사용: 27_28_갱신.bat 더블클릭. 매일 1~2회 돌리면 전체 종목이 순환 갱신됨.
-옵션: --no-push (push 생략) / --quota N (이번 실행 요청 수 강제)
+사용: 27_28_갱신.bat 더블클릭
+옵션: --no-push (push 생략) / --quota N (요청 수 강제)
 """
 import sys, os, time, json, random, subprocess, glob
 
@@ -34,14 +30,11 @@ except Exception:
 
 import pandas as pd
 import numpy as np
-import requests
-from bs4 import BeautifulSoup
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from crawl_script import _parse_fnguide_response, CSV_FILE, SNAPSHOT_DIR, now_kst, HEADERS
+from crawl_script import scrape_fnguide_supplement, CSV_FILE, SNAPSHOT_DIR, now_kst
 
-FG_REFERER = {'Referer': 'https://comp.fnguide.com/'}
 STATS_FILE = os.path.join(HERE, '.fnguide_stats.json')   # 로컬 전용(.gitignore)
 
 NO_PUSH = '--no-push' in sys.argv
@@ -53,10 +46,10 @@ for _i, _a in enumerate(sys.argv):
         except ValueError:
             pass
 
-INITIAL_QUOTA = 120        # 첫 실행 요청 수 (보수적 시작 → 이후 자동 학습)
+INITIAL_QUOTA = 700        # 신규 엔드포인트는 스로틀 미확인 → 사실상 전량, 문제 시 학습으로 하향
 QUOTA_MIN, QUOTA_MAX = 30, 800
-INTERVAL_LO, INTERVAL_HI = 1.2, 2.6   # 요청 간격 랜덤 지터(초)
-MAX_CONSEC_BLOCK = 3       # 연속 차단 N회 = IP 한도 도달 → 즉시 손 뗌
+INTERVAL_LO, INTERVAL_HI = 0.4, 1.0   # 요청 간격 랜덤 지터(초)
+MAX_CONSEC_BLOCK = 3       # (실패 판정 배수 기준으로 사용)
 FRESH_WINDOW_DAYS = 7      # 최근 N일 내 fresh 받은 종목은 스킵 (순환 갱신)
 
 
@@ -73,18 +66,6 @@ def save_stats(st):
                   ensure_ascii=False, indent=1)
     except Exception:
         pass
-
-
-def is_block(resp, code):
-    """차단 = gicode 무시하고 삼성전자 기본 페이지 반환 (title로 판별)."""
-    if resp is None:
-        return True
-    try:
-        t = BeautifulSoup(resp.text, 'lxml').find('title')
-        name = t.get_text(strip=True) if t else ''
-        return ('삼성전자' in name) and (code != '005930')
-    except Exception:
-        return False
 
 
 def recent_fresh_codes(days=FRESH_WINDOW_DAYS):
@@ -124,8 +105,11 @@ def main():
 
     # 1) 이 PC의 학습된 안전 한도
     stats = load_stats()
-    quota = FORCE_QUOTA or int(stats.get('safe_limit', INITIAL_QUOTA))
-    quota = max(QUOTA_MIN, min(QUOTA_MAX, quota))
+    if FORCE_QUOTA:
+        quota = FORCE_QUOTA          # 강제값은 클램프하지 않음
+    else:
+        quota = int(stats.get('safe_limit', INITIAL_QUOTA))
+        quota = max(QUOTA_MIN, min(QUOTA_MAX, quota))
     hist = stats.get('history', [])
 
     df = pd.read_csv(CSV_FILE, dtype={'종목코드': str})
@@ -162,45 +146,23 @@ def main():
         print('✅ 갱신할 종목이 없습니다 (전부 최근 fresh).')
         return
 
-    session = requests.Session()
-    session.headers.update(HEADERS)
-
     got, tried, consec = 0, 0, 0
     blocked = False
     for _, row in target.iterrows():
         if tried >= quota:
-            print(f'🛑 요청 한도 {quota}개 도달 → 자발적 중단 (IP 청정 유지).')
-            print('   몇 시간 뒤 다시 실행하면 이어서 받습니다.')
+            print(f'🛑 요청 한도 {quota}개 도달 → 자발적 중단.')
+            print('   다시 실행하면 이어서 받습니다.')
             break
         code, name = row['종목코드'], row['종목명']
-        url = f'https://comp.fnguide.com/SVO2/ASP/SVD_Main.asp?pGB=1&gicode=A{code}'
         tried += 1
-        try:
-            r = session.get(url, headers=FG_REFERER, timeout=(5, 15))
-        except Exception:
-            r = None
-
-        if is_block(r, code):
-            consec += 1
-            if tried <= 2 and consec == tried:
-                # 시작부터 차단 = 이 IP는 아직 쿨다운 중 → 더 찌르지 않음
-                print('⛔ 시작부터 차단 상태입니다. 이 IP는 쿨다운 중입니다.')
-                print('   몇 시간 후(가급적 다음 날) 다시 실행해주세요.')
-                blocked = True
-                break
-            if consec >= MAX_CONSEC_BLOCK:
-                print(f'⛔ 연속 {MAX_CONSEC_BLOCK}회 차단 → 한도 도달, 즉시 중단.')
-                blocked = True
-                break
-            time.sleep(random.uniform(INTERVAL_HI, INTERVAL_HI * 2))
-            continue
-        consec = 0
-
-        dm = _parse_fnguide_response(r, name)
+        # 신규 엔드포인트 (wcomp.fnguide.com/CompanyInfo/Consensus)
+        dm = scrape_fnguide_supplement(code, name)
         op = dm.get('영업이익', {}) or {}
         rv = dm.get('매출액', {}) or {}
+
         if op.get(2027) is not None or op.get(2028) is not None \
                 or rv.get(2027) is not None or rv.get(2028) is not None:
+            consec = 0
             entry = snap.get(code, {})
             for m, src in (('매출액', rv), ('영업이익', op)):
                 for y in (2025, 2026, 2027, 2028):
@@ -210,6 +172,16 @@ def main():
             got += 1
             if got % 25 == 0:
                 print(f'   ...{got}개 fresh (요청 {tried}/{quota})')
+        elif dm:
+            # 페이지는 정상인데 27/28 컨센만 없음 = 커버리지 상실 (실패 아님)
+            consec = 0
+        else:
+            # 완전 빈 결과 = 네트워크/404/종목명 불일치 → 연속되면 사이트 문제
+            consec += 1
+            if consec >= MAX_CONSEC_BLOCK * 2:
+                print(f'⛔ 연속 {consec}회 완전 실패 → 사이트/네트워크 문제로 판단, 중단.')
+                blocked = True
+                break
         time.sleep(random.uniform(INTERVAL_LO, INTERVAL_HI))
 
     # 3) 한도 학습 업데이트
