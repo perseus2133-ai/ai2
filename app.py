@@ -3145,9 +3145,10 @@ def main():
             st.warning("⚠️ 조건에 부합하는 종목이 없습니다. 사이드바에서 기준을 완화하거나, '개별종목확인' 탭에서 종목명으로 직접 검색하세요.")
 
         # 탭 (5개)
-        tab_cards, tab_search, tab_sector, tab_table, tab_hist = st.tabs([
+        tab_cards, tab_search, tab_sector, tab_table, tab_hist, tab_paper = st.tabs([
             "📋 종목 카드 뷰", "🔍 개별종목확인",
             "🏢 업종별 테마순위", "📊 데이터 테이블", "📅 누적 기록",
+            "💰 모의투자",
         ])
 
         with tab_cards:
@@ -3409,6 +3410,83 @@ def main():
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True
                     )
+
+        # ────────────────────────────────────────────────────────
+        # 모의투자 탭 — paper_trading.py 결과 뷰어
+        # ────────────────────────────────────────────────────────
+        with tab_paper:
+            st.markdown("### 💰 모의투자 (가상 1억원 · 주 1회 자동 리밸런싱)")
+            _pt_dir = os.path.join(DATA_DIR, 'paper_trading')
+            _pf = None
+            _hist = []
+            _trades = []
+            try:
+                with open(os.path.join(_pt_dir, 'portfolio.json'), encoding='utf-8') as f:
+                    _pf = json.load(f)
+                with open(os.path.join(_pt_dir, 'history.json'), encoding='utf-8') as f:
+                    _hist = json.load(f)
+                with open(os.path.join(_pt_dir, 'trades.json'), encoding='utf-8') as f:
+                    _trades = json.load(f)
+            except Exception:
+                pass
+
+            if not _pf or not _hist:
+                st.info("모의투자 데이터가 아직 없습니다. 새벽 자동 크롤이 돌면 자동으로 시작됩니다.")
+            else:
+                _last = _hist[-1]
+                _init_cap = 100_000_000
+                _total = _last.get('total', _init_cap)
+                _ret = _last.get('ret_pct', 0.0)
+                pc1, pc2, pc3, pc4 = st.columns(4)
+                pc1.metric("평가액", f"{_total:,.0f}원", f"{_ret:+.2f}%")
+                pc2.metric("현금", f"{_last.get('cash', 0):,.0f}원")
+                pc3.metric("시작일", _pf.get('started', '-'))
+                pc4.metric("마지막 리밸런싱", _pf.get('last_rebalance', '-'))
+
+                # 평가액 곡선
+                if len(_hist) >= 2:
+                    _curve = pd.DataFrame(
+                        {'평가액': [e['total'] for e in _hist]},
+                        index=pd.to_datetime([e['date'] for e in _hist]),
+                    )
+                    st.line_chart(_curve, height=260)
+                else:
+                    st.caption("평가액 곡선은 이틀 이상 기록이 쌓이면 표시됩니다.")
+
+                # 보유 종목
+                st.markdown("#### 보유 종목")
+                _rows = []
+                for _c, _hh in (_last.get('holdings') or {}).items():
+                    _p = _hh.get('price') or _hh.get('avg') or 0
+                    _avg = _hh.get('avg') or 0
+                    _rows.append({
+                        '종목명': _hh.get('name', ''), '종목코드': _c,
+                        '보유수량': _hh.get('shares', 0),
+                        '매수가': _avg, '현재가': _p,
+                        '수익률(%)': round((_p / _avg - 1) * 100, 2) if _avg else 0,
+                        '평가금액': int((_p or 0) * _hh.get('shares', 0)),
+                    })
+                if _rows:
+                    st.dataframe(pd.DataFrame(_rows), use_container_width=True, hide_index=True)
+                else:
+                    st.caption("보유 종목 없음 (전량 현금)")
+
+                # 거래 일지
+                st.markdown("#### 거래 일지 (사유 포함)")
+                if _trades:
+                    _tdf = pd.DataFrame(_trades)[::-1]
+                    _tdf = _tdf.rename(columns={
+                        'date': '날짜', 'action': '구분', 'shares': '수량',
+                        'price': '가격', 'amount': '금액', 'reason': '사유'})
+                    st.dataframe(_tdf, use_container_width=True, hide_index=True, height=360)
+                else:
+                    st.caption("거래 기록 없음")
+
+                st.caption(
+                    "매도 룰: 손절 -15% · 트레일링 고점 -20% · 익절 +50%/+100% 각 1/3 · "
+                    "시간손절 26주 & +10% 미만 · 순위탈락(상위 20위 밖 & 10점 이상 열위) | "
+                    "선정: 성장 30 + 밸류 20 + 수급 20 + 기술 20 + 유동성 10, 업종당 최대 2종목"
+                )
     else:
         st.markdown("""
         <div style="text-align:center; padding:60px 20px;">

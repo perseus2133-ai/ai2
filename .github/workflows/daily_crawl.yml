@@ -45,6 +45,11 @@ jobs:
       - name: 🔄 크롤링 실행
         run: python crawl_script.py
 
+      # 모의투자: 매일 평가액 기록 + 7일 경과 시 주간 리밸런싱
+      # (fresh CSV 기반, 결과는 data/paper_trading/ → 아래 push에 포함)
+      - name: 💰 모의투자 평가/리밸런싱
+        run: python paper_trading.py --auto
+
       - name: 💾 데이터 커밋 & 푸시
         run: |
           git config user.name  "github-actions[bot]"
