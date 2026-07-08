@@ -2837,9 +2837,87 @@ def render_stock_card(row, rank):
         unsafe_allow_html=True,
     )
 
+def inject_scroll_top_button():
+    """우하단 '맨 위로' 플로팅 버튼.
+
+    Streamlit은 st.markdown 안의 <script>를 실행하지 않으므로,
+    components.html(iframe, srcdoc=동일출처)에서 부모 문서에 버튼을
+    직접 심는다. 스크롤 400px 이후에만 나타나고, 클릭 시 부드럽게 최상단.
+    Streamlit 버전에 따라 스크롤 컨테이너가 달라 후보를 순회한다.
+    """
+    from streamlit.components.v1 import html as _html
+    _html("""
+    <script>
+    (function () {
+        const doc = window.parent.document;
+        if (doc.getElementById('qk-scroll-top')) return;   // 재실행 중복 방지
+
+        // Streamlit 버전별 스크롤 컨테이너 후보
+        function getScroller() {
+            const cands = [
+                doc.querySelector('[data-testid="stAppViewContainer"] section.main'),
+                doc.querySelector('section.main'),
+                doc.querySelector('[data-testid="stAppViewContainer"]'),
+                doc.querySelector('[data-testid="stMain"]'),
+            ];
+            for (const el of cands) {
+                if (el && el.scrollHeight > el.clientHeight + 50) return el;
+            }
+            return null;
+        }
+
+        const btn = doc.createElement('button');
+        btn.id = 'qk-scroll-top';
+        btn.innerHTML = '&#8679;';   // ⇧
+        btn.title = '맨 위로';
+        Object.assign(btn.style, {
+            position: 'fixed', right: '28px', bottom: '96px', zIndex: '9999',
+            width: '48px', height: '48px', borderRadius: '50%',
+            border: '1px solid #4A5568', cursor: 'pointer',
+            background: 'rgba(30,41,59,0.92)', color: '#62EFFF',
+            fontSize: '22px', fontWeight: '700', lineHeight: '1',
+            boxShadow: '0 4px 14px rgba(0,0,0,0.45)',
+            opacity: '0', pointerEvents: 'none',
+            transition: 'opacity 0.25s, transform 0.15s',
+        });
+        btn.onmouseenter = () => { btn.style.transform = 'scale(1.12)'; };
+        btn.onmouseleave = () => { btn.style.transform = 'scale(1)'; };
+        btn.onclick = () => {
+            const sc = getScroller();
+            if (sc) sc.scrollTo({top: 0, behavior: 'smooth'});
+            window.parent.scrollTo({top: 0, behavior: 'smooth'});  // 폴백
+        };
+        doc.body.appendChild(btn);
+
+        function toggle() {
+            const sc = getScroller();
+            const y = sc ? sc.scrollTop : (window.parent.scrollY || 0);
+            const show = y > 400;
+            btn.style.opacity = show ? '1' : '0';
+            btn.style.pointerEvents = show ? 'auto' : 'none';
+        }
+        // 컨테이너/윈도우 양쪽에 리스너 (rerun으로 컨테이너가 바뀔 수 있어 주기 재바인딩)
+        let bound = null;
+        function bind() {
+            const sc = getScroller();
+            if (sc && sc !== bound) {
+                sc.addEventListener('scroll', toggle, {passive: true});
+                bound = sc;
+            }
+        }
+        bind();
+        window.parent.addEventListener('scroll', toggle, {passive: true});
+        setInterval(() => { bind(); toggle(); }, 1500);
+    })();
+    </script>
+    """, height=0)
+
+
 def main():
     if not check_password():
         return
+
+    inject_scroll_top_button()
 
     st.markdown("""
     <div class="hero-header">
