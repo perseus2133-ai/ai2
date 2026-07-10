@@ -2308,6 +2308,16 @@ def render_stock_card(row, rank):
         if pd.isna(v): return '#64748B'
         return '#FCA5A5' if v > 0 else '#93C5FD'
 
+    # 추정치 셀 아래 '30일 전 대비 절대 변화(억)' 부기. |Δ|<1억은 노이즈로 숨김
+    def fv_delta(metric, year):
+        d = row.get(f'컨센Δ_{metric}_{year}', np.nan)
+        if pd.isna(d) or abs(d) < 1:
+            return ''
+        color = '#34D399' if d > 0 else '#F87171'
+        arrow = '▲' if d > 0 else '▼'
+        return (f'<br><span style="font-size:0.62rem;font-weight:600;color:{color};"'
+                f' title="30일 전 컨센서스 대비 변화 (억원)">{arrow}{d:+,.0f}</span>')
+
     hdr = 'display:flex;gap:0;font-size:0.7rem;color:#94A3B8;margin-bottom:4px;border-bottom:1px solid #4A5568;padding-bottom:3px;'
     rw = "display:flex;gap:0;font-size:0.8rem;margin-bottom:2px;font-family:'JetBrains Mono', monospace;"
     lb = 'width:80px;padding:2px 6px;color:#94A3B8;font-size:0.75rem;flex-shrink:0;'
@@ -2359,7 +2369,10 @@ def render_stock_card(row, rank):
 
     evidence_html = (
         f'<div class="qcd-evidence">'
-        f'<div class="head">재무 소스 (단위: 억원){boost_label}</div>'
+        f'<div class="head">재무 소스 (단위: 억원)'
+        f'<span style="margin-left:8px;color:#64748B;font-size:0.64rem;font-weight:500;">'
+        f'추정치 아래 <span style="color:#34D399;">▲</span>/<span style="color:#F87171;">▼</span>'
+        f' = 30일 전 컨센 대비 변화(억)</span>{boost_label}</div>'
         f'<div class="evidence-scroll">'
         f'<div style="{hdr}"><div style="{lb}"></div>'
         f'<div style="{cc}">\'23</div><div style="{cc}">\'24</div>'
@@ -2370,17 +2383,17 @@ def render_stock_card(row, rank):
         f'<div style="{rw}"><div style="{lb}">매출액</div>'
         f'<div style="{cc}color:{fv_color(rv23)};">{fv(rv23)}</div>'
         f'<div style="{cc}color:{fv_color(rv24)};">{fv(rv24)}</div>'
-        f'<div style="{ce}color:{fv_color(rv25)};">{fv(rv25)}</div>'
-        f'<div style="{ce}color:{fv_color(rv26)};">{fv(rv26)}</div>'
-        f'<div style="{ce}color:{fv_color(rv27)};">{fv(rv27)}</div>'
-        f'<div style="{ce}color:{fv_color(rv28)};">{fv(rv28)}</div></div>'
+        f'<div style="{ce}color:{fv_color(rv25)};">{fv(rv25)}{fv_delta("매출액", 2025)}</div>'
+        f'<div style="{ce}color:{fv_color(rv26)};">{fv(rv26)}{fv_delta("매출액", 2026)}</div>'
+        f'<div style="{ce}color:{fv_color(rv27)};">{fv(rv27)}{fv_delta("매출액", 2027)}</div>'
+        f'<div style="{ce}color:{fv_color(rv28)};">{fv(rv28)}{fv_delta("매출액", 2028)}</div></div>'
         f'<div style="{rw}"><div style="{lb}">영업이익</div>'
         f'<div style="{cc}color:{fv_color(ov23)};">{fv(ov23)}</div>'
         f'<div style="{cc}color:{fv_color(ov24)};">{fv(ov24)}</div>'
-        f'<div style="{ce}color:{fv_color(ov25)};">{fv(ov25)}</div>'
-        f'<div style="{ce}color:{fv_color(ov26)};">{fv(ov26)}</div>'
-        f'<div style="{ce}color:{fv_color(ov27)};">{fv(ov27)}</div>'
-        f'<div style="{ce}color:{fv_color(ov28)};">{fv(ov28)}</div></div>'
+        f'<div style="{ce}color:{fv_color(ov25)};">{fv(ov25)}{fv_delta("영업이익", 2025)}</div>'
+        f'<div style="{ce}color:{fv_color(ov26)};">{fv(ov26)}{fv_delta("영업이익", 2026)}</div>'
+        f'<div style="{ce}color:{fv_color(ov27)};">{fv(ov27)}{fv_delta("영업이익", 2027)}</div>'
+        f'<div style="{ce}color:{fv_color(ov28)};">{fv(ov28)}{fv_delta("영업이익", 2028)}</div></div>'
         f'</div>'
         f'{revision_line}'
         f'</div>'
@@ -3096,6 +3109,22 @@ def main():
 
         all_df['Revision_Score'] = np.where(weight_used > 0, weighted_sum / weight_used, np.nan)
         all_df.attrs['snapshot_compare_date'] = snap_date or ''
+
+        # ── 컨센 절대 변화량(억): 30일 전 스냅샷 대비 new - old ──────
+        # 카드 재무 소스 표에서 각 추정치 아래 '▲+200' 형태로 표시하기 위함.
+        # (%가 아닌 절대액이라 영업이익이 작은 종목의 노이즈 확대가 없고,
+        #  old<=0 인 경우도 자연스럽게 정의됨)
+        for metric in ('매출액', '영업이익'):
+            for y in (2025, 2026, 2027, 2028):
+                new_v = pd.to_numeric(all_df.get(f'{metric}_{y}', np.nan), errors='coerce')
+                old_v = pd.to_numeric(
+                    codes_zfill.map(lambda c, _m=metric, _y=y: (snap.get(c, {}) or {}).get(f'{_m}_{_y}')),
+                    errors='coerce'
+                )
+                delta = pd.Series(np.nan, index=all_df.index)
+                m = pd.notna(new_v) & pd.notna(old_v)
+                delta.loc[m] = new_v.loc[m] - old_v.loc[m]
+                all_df[f'컨센Δ_{metric}_{y}'] = delta
 
         # ── 업종 모멘텀: 업종별 Revision Score 중앙값 ─────────────
         # 같은 업종 종목들의 컨센서스 상향이 집단적이면 → 테마 진입 시그널
