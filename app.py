@@ -3174,8 +3174,8 @@ def main():
             st.warning("⚠️ 조건에 부합하는 종목이 없습니다. 사이드바에서 기준을 완화하거나, '개별종목확인' 탭에서 종목명으로 직접 검색하세요.")
 
         # 탭 (5개)
-        tab_cards, tab_search, tab_sector, tab_table, tab_hist, tab_paper = st.tabs([
-            "📋 종목 카드 뷰", "🔍 개별종목확인",
+        tab_cards, tab_rev, tab_search, tab_sector, tab_table, tab_hist, tab_paper = st.tabs([
+            "📋 종목 카드 뷰", "🚀 컨센 상향", "🔍 개별종목확인",
             "🏢 업종별 테마순위", "📊 데이터 테이블", "📅 누적 기록",
             "💰 모의투자",
         ])
@@ -3227,6 +3227,66 @@ def main():
             si = (st.session_state['page']-1)*page_size
             for rank, (_, row) in enumerate(df_s.iloc[si:si+page_size].iterrows(), start=si+1):
                 render_stock_card(row, rank)
+
+        # ────────────────────────────────────────────────────────
+        # 컨센 상향 탭 — 30일 전 대비 컨센서스가 올라간 종목만 모아서
+        # Revision Score(상향률) 큰 순으로 표시
+        # ────────────────────────────────────────────────────────
+        with tab_rev:
+            snap_cmp = all_df.attrs.get('snapshot_compare_date', '') or '스냅샷 없음'
+            st.markdown(
+                "<h3 style='color:#FFFFFF;'>🚀 컨센서스 상향 종목</h3>"
+                f"<div style='color:#A0AEC0;font-size:0.85rem;margin-bottom:12px;'>"
+                f"영업이익 컨센서스(2026E×0.5 + 2027E×0.3 + 2028E×0.2 가중)가 "
+                f"<b>30일 전({snap_cmp})보다 상향</b>된 종목만, 상향률 큰 순. "
+                f"사이드바 필터가 동일하게 적용됩니다."
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+            rev_thresh_label = st.selectbox(
+                "최소 상향률",
+                ["전체 (+0% 초과)", "+1% 이상", "+3% 이상", "+5% 이상", "+10% 이상", "+20% 이상"],
+                index=1, key="rev_tab_thresh",
+            )
+            rev_min = {"전체 (+0% 초과)": 0.0, "+1% 이상": 1.0, "+3% 이상": 3.0,
+                       "+5% 이상": 5.0, "+10% 이상": 10.0, "+20% 이상": 20.0}[rev_thresh_label]
+
+            rev_series = pd.to_numeric(df.get('Revision_Score'), errors='coerce')
+            df_rev = df[rev_series > rev_min].copy() if rev_min > 0 else df[rev_series > 0].copy()
+            df_rev = df_rev.sort_values('Revision_Score', ascending=False).reset_index(drop=True)
+
+            n_up = int((rev_series > 0).sum())
+            n_down = int((rev_series < 0).sum())
+            st.markdown(
+                f'<div style="color:#FFFFFF;font-size:0.9rem;font-family:\'JetBrains Mono\',monospace;'
+                f'margin-bottom:10px;">> 상향 <span style="color:#34D399;font-weight:700;">{n_up}</span>개 · '
+                f'하향 <span style="color:#F87171;font-weight:700;">{n_down}</span>개 중 '
+                f'조건 충족 <span style="color:#62EFFF;font-weight:700;">{len(df_rev)}</span>개</div>',
+                unsafe_allow_html=True,
+            )
+
+            if df_rev.empty:
+                st.info("조건에 맞는 상향 종목이 없습니다. 임계값을 낮추거나 사이드바 필터를 완화해보세요.")
+            else:
+                rp_size = 20
+                rp_total = max(1, (len(df_rev) - 1) // rp_size + 1)
+                if 'rev_page' not in st.session_state: st.session_state['rev_page'] = 1
+                if st.session_state['rev_page'] > rp_total: st.session_state['rev_page'] = 1
+
+                rc1, rc2, rc3 = st.columns([1, 2, 1])
+                with rc1:
+                    if st.button("◀ 이전", key="rev_prev", disabled=st.session_state['rev_page'] <= 1):
+                        st.session_state['rev_page'] -= 1; st.rerun()
+                with rc2:
+                    st.markdown(f"<div style='text-align:center;color:#FFFFFF;padding:8px;'>페이지 {st.session_state['rev_page']} / {rp_total}</div>", unsafe_allow_html=True)
+                with rc3:
+                    if st.button("다음 ▶", key="rev_next", disabled=st.session_state['rev_page'] >= rp_total):
+                        st.session_state['rev_page'] += 1; st.rerun()
+
+                rsi_ = (st.session_state['rev_page'] - 1) * rp_size
+                for rank, (_, row) in enumerate(df_rev.iloc[rsi_:rsi_ + rp_size].iterrows(), start=rsi_ + 1):
+                    render_stock_card(row, rank)
 
         # ────────────────────────────────────────────────────────
         # 개별종목확인 탭 — 필터 무시하고 종목명/코드로 직접 검색
