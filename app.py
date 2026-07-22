@@ -3351,41 +3351,58 @@ def main():
                     f"font-family:\"JetBrains Mono\",monospace;margin:6px 0 10px 0;'>"
                     f"📅 {latest_d} 선정</div>", unsafe_allow_html=True)
 
-                for i, p in enumerate(latest_picks, 1):
-                    cur = cur_price_map.get(p['code'])
-                    ret_html = ''
-                    if cur and p.get('price'):
-                        ret = (cur / p['price'] - 1) * 100
-                        rc = '#34D399' if ret >= 0 else '#F87171'
-                        ret_html = (f'<span style="color:{rc};font-family:\'JetBrains Mono\',monospace;'
-                                    f'font-weight:800;margin-left:10px;">선정 후 {ret:+.1f}%</span>')
-                    chips = ''.join(
-                        f'<span style="display:inline-block;background:rgba(98,239,255,0.08);'
-                        f'border:1px solid rgba(98,239,255,0.25);border-radius:6px;color:#CBD5E1;'
-                        f'font-size:0.74rem;padding:2px 8px;margin:2px 4px 2px 0;">{r}</span>'
-                        for r in p.get('reasons', []))
-                    st.markdown(
-                        f'<div style="background:rgba(17,24,39,0.55);border:1px solid #4A5568;'
-                        f'border-left:3px solid #62EFFF;border-radius:8px;padding:10px 14px;margin:14px 0 4px 0;">'
-                        f'<span style="color:#62EFFF;font-weight:800;">#{i} {p["name"]}</span>'
-                        f'<span style="color:#94A3B8;font-size:0.78rem;margin-left:8px;">'
-                        f'{p.get("sector","")} · 점수 {p.get("score","-")} · 선정가 {p.get("price",0):,.0f}원</span>'
-                        f'{ret_html}<div style="margin-top:6px;">{chips}</div></div>',
-                        unsafe_allow_html=True)
+                _mkt_order = [('KOSPI', '🔵 코스피 3선', '#0EA5E9'),
+                              ('KOSDAQ', '🟣 코스닥 3선', '#8B5CF6')]
+                _grouped = []
+                for _mk, _ml, _mc in _mkt_order:
+                    _mps = [p for p in latest_picks if p.get('market') == _mk]
+                    if _mps:
+                        _grouped.append((_ml, _mc, _mps))
+                _others = [p for p in latest_picks if p.get('market') not in ('KOSPI', 'KOSDAQ')]
+                if _others:
+                    _grouped.append(('기타', '#94A3B8', _others))
 
-                    prow = all_df[_pm['__c'] == p['code']]
-                    if not prow.empty:
-                        try:
-                            crow = compute_card_fields(prow.copy())
-                            if '업종' not in crow.columns or crow['업종'].isna().all():
-                                crow['업종'] = p.get('sector', '기타')
-                            crow['업종평균PER'] = crow['업종'].map(get_sector_per_map())
-                            if '거래량배수' not in crow.columns:
-                                crow['거래량배수'] = np.nan
-                            crow = apply_peer_multiples_with_universe(crow, all_df)
-                            render_stock_card(crow.iloc[0], i)
-                        except Exception:
-                            pass
+                for _ml, _mc, _mps in _grouped:
+                    st.markdown(
+                        f"<div style='color:{_mc};font-size:1.0rem;font-weight:800;"
+                        f"margin:14px 0 2px 0;border-bottom:1px solid {_mc}44;padding-bottom:4px;'>"
+                        f"{_ml}</div>", unsafe_allow_html=True)
+
+                    for i, p in enumerate(_mps, 1):
+                        cur = cur_price_map.get(p['code'])
+                        ret_html = ''
+                        if cur and p.get('price'):
+                            ret = (cur / p['price'] - 1) * 100
+                            rc = '#34D399' if ret >= 0 else '#F87171'
+                            ret_html = (f'<span style="color:{rc};font-family:\'JetBrains Mono\',monospace;'
+                                        f'font-weight:800;margin-left:10px;">선정 후 {ret:+.1f}%</span>')
+                        chips = ''.join(
+                            f'<span style="display:inline-block;background:rgba(98,239,255,0.08);'
+                            f'border:1px solid rgba(98,239,255,0.25);border-radius:6px;color:#CBD5E1;'
+                            f'font-size:0.74rem;padding:2px 8px;margin:2px 4px 2px 0;">{r}</span>'
+                            for r in p.get('reasons', []))
+                        st.markdown(
+                            f'<div style="background:rgba(17,24,39,0.55);border:1px solid #4A5568;'
+                            f'border-left:3px solid {_mc};border-radius:8px;padding:10px 14px;margin:14px 0 4px 0;">'
+                            f'<span style="color:{_mc};font-weight:800;">#{i} {p["name"]}</span>'
+                            f'<span style="color:#94A3B8;font-size:0.78rem;margin-left:8px;">'
+                            f'{p.get("sector","")} · 점수 {p.get("score","-")} · 선정가 {p.get("price",0):,.0f}원</span>'
+                            f'{ret_html}<div style="margin-top:6px;">{chips}</div></div>',
+                            unsafe_allow_html=True)
+
+                        prow = all_df[_pm['__c'] == p['code']]
+                        if not prow.empty:
+                            try:
+                                crow = compute_card_fields(prow.copy())
+                                if '업종' not in crow.columns or crow['업종'].isna().all():
+                                    crow['업종'] = p.get('sector', '기타')
+                                crow['업종평균PER'] = crow['업종'].map(get_sector_per_map())
+                                if '거래량배수' not in crow.columns:
+                                    crow['거래량배수'] = np.nan
+                                crow = apply_peer_multiples_with_universe(crow, all_df)
+                                render_stock_card(crow.iloc[0], i)
+                            except Exception:
+                                pass
 
                 # ── 누적 기록 ──
                 st.markdown("<h4 style='color:#FFFFFF;margin-top:18px;'>📜 누적 기록</h4>",
@@ -3396,7 +3413,8 @@ def main():
                         cur = cur_price_map.get(p['code'])
                         ret = (cur / p['price'] - 1) * 100 if (cur and p.get('price')) else np.nan
                         recs.append({
-                            '선정일': d, '종목명': p['name'], '업종': p.get('sector', ''),
+                            '선정일': d, '시장': p.get('market', ''), '종목명': p['name'],
+                            '업종': p.get('sector', ''),
                             '선정가': p.get('price'), '현재가': cur,
                             '수익률%': round(ret, 1) if pd.notna(ret) else None,
                             '점수': p.get('score'),
