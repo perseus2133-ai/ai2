@@ -60,6 +60,16 @@ jobs:
           git commit -m "🤖 Auto crawl: $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M KST')"
           git push
 
+      # AI 데일리 3선 카톡 전송 (시크릿 미설정이면 자동 건너뜀, 실패해도 크롤 무관)
+      - name: 📨 카카오톡 알림 (AI 3선)
+        continue-on-error: true
+        env:
+          KAKAO_REST_KEY: ${{ secrets.KAKAO_REST_KEY }}
+          KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
+          APP_URL: ${{ secrets.APP_URL }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: python kakao_send.py
+
       # push 이후에 실행: 데이터는 이미 안전하게 커밋된 상태에서,
       # FnGuide fresh 27/28E가 0건이면 run을 실패 처리 → GitHub이
       # 소유자에게 실패 메일을 자동 발송 (주소 변경/개편을 당일 인지)
