@@ -3198,8 +3198,8 @@ def main():
             st.warning("⚠️ 조건에 부합하는 종목이 없습니다. 사이드바에서 기준을 완화하거나, '개별종목확인' 탭에서 종목명으로 직접 검색하세요.")
 
         # 탭 (5개)
-        tab_cards, tab_rev, tab_search, tab_sector, tab_table, tab_hist, tab_paper = st.tabs([
-            "📋 종목 카드 뷰", "🚀 컨센 상향", "🔍 개별종목확인",
+        tab_cards, tab_rev, tab_ai, tab_search, tab_sector, tab_table, tab_hist, tab_paper = st.tabs([
+            "📋 종목 카드 뷰", "🚀 컨센 상향", "🤖 AI 3선", "🔍 개별종목확인",
             "🏢 업종별 테마순위", "📊 데이터 테이블", "📅 누적 기록",
             "💰 모의투자",
         ])
@@ -3311,6 +3311,111 @@ def main():
                 rsi_ = (st.session_state['rev_page'] - 1) * rp_size
                 for rank, (_, row) in enumerate(df_rev.iloc[rsi_:rsi_ + rp_size].iterrows(), start=rsi_ + 1):
                     render_stock_card(row, rank)
+
+        # ────────────────────────────────────────────────────────
+        # AI 3선 탭 — 매일 크롤이 종합 점수로 선정한 3종목 + 누적 수익률
+        # ────────────────────────────────────────────────────────
+        with tab_ai:
+            st.markdown(
+                "<h3 style='color:#FFFFFF;'>🤖 AI 데일리 3선</h3>"
+                "<div style='color:#A0AEC0;font-size:0.85rem;margin-bottom:12px;'>"
+                "매일 새벽 크롤이 <b>컨센 모멘텀 30% · 성장성 20% · EV보정 밸류 20% · "
+                "수급 15% · 퀄리티 15% + 기술 가점</b>으로 전 종목을 채점해 상위 3종목을 "
+                "선정합니다 (시총 1,000억↑ · 흑자 · 27/28E 컨센 보유 · 업종 최대 2종목). "
+                "선정가 대비 수익률이 누적 기록됩니다."
+                "</div>",
+                unsafe_allow_html=True,
+            )
+
+            picks_path = os.path.join(DATA_DIR, 'daily_picks.json')
+            picks_hist = {}
+            if os.path.exists(picks_path):
+                try:
+                    picks_hist = json.load(open(picks_path, encoding='utf-8'))
+                except Exception:
+                    picks_hist = {}
+
+            if not picks_hist:
+                st.info("아직 선정 기록이 없습니다. 다음 자동 크롤부터 매일 3종목이 기록됩니다.")
+            else:
+                latest_d = max(picks_hist.keys())
+                latest_picks = picks_hist[latest_d] or []
+
+                # 현재가 맵 (수익률 계산용)
+                _pm = all_df.copy()
+                _pm['__c'] = _pm['종목코드'].astype(str).str.zfill(6)
+                cur_price_map = dict(zip(_pm['__c'], pd.to_numeric(_pm['현재가'], errors='coerce')))
+
+                st.markdown(
+                    f"<div style='color:#62EFFF;font-size:0.95rem;font-weight:700;"
+                    f"font-family:\"JetBrains Mono\",monospace;margin:6px 0 10px 0;'>"
+                    f"📅 {latest_d} 선정</div>", unsafe_allow_html=True)
+
+                for i, p in enumerate(latest_picks, 1):
+                    cur = cur_price_map.get(p['code'])
+                    ret_html = ''
+                    if cur and p.get('price'):
+                        ret = (cur / p['price'] - 1) * 100
+                        rc = '#34D399' if ret >= 0 else '#F87171'
+                        ret_html = (f'<span style="color:{rc};font-family:\'JetBrains Mono\',monospace;'
+                                    f'font-weight:800;margin-left:10px;">선정 후 {ret:+.1f}%</span>')
+                    chips = ''.join(
+                        f'<span style="display:inline-block;background:rgba(98,239,255,0.08);'
+                        f'border:1px solid rgba(98,239,255,0.25);border-radius:6px;color:#CBD5E1;'
+                        f'font-size:0.74rem;padding:2px 8px;margin:2px 4px 2px 0;">{r}</span>'
+                        for r in p.get('reasons', []))
+                    st.markdown(
+                        f'<div style="background:rgba(17,24,39,0.55);border:1px solid #4A5568;'
+                        f'border-left:3px solid #62EFFF;border-radius:8px;padding:10px 14px;margin:14px 0 4px 0;">'
+                        f'<span style="color:#62EFFF;font-weight:800;">#{i} {p["name"]}</span>'
+                        f'<span style="color:#94A3B8;font-size:0.78rem;margin-left:8px;">'
+                        f'{p.get("sector","")} · 점수 {p.get("score","-")} · 선정가 {p.get("price",0):,.0f}원</span>'
+                        f'{ret_html}<div style="margin-top:6px;">{chips}</div></div>',
+                        unsafe_allow_html=True)
+
+                    prow = all_df[_pm['__c'] == p['code']]
+                    if not prow.empty:
+                        try:
+                            crow = compute_card_fields(prow.copy())
+                            if '업종' not in crow.columns or crow['업종'].isna().all():
+                                crow['업종'] = p.get('sector', '기타')
+                            crow['업종평균PER'] = crow['업종'].map(get_sector_per_map())
+                            if '거래량배수' not in crow.columns:
+                                crow['거래량배수'] = np.nan
+                            crow = apply_peer_multiples_with_universe(crow, all_df)
+                            render_stock_card(crow.iloc[0], i)
+                        except Exception:
+                            pass
+
+                # ── 누적 기록 ──
+                st.markdown("<h4 style='color:#FFFFFF;margin-top:18px;'>📜 누적 기록</h4>",
+                            unsafe_allow_html=True)
+                recs = []
+                for d in sorted(picks_hist.keys(), reverse=True):
+                    for p in (picks_hist[d] or []):
+                        cur = cur_price_map.get(p['code'])
+                        ret = (cur / p['price'] - 1) * 100 if (cur and p.get('price')) else np.nan
+                        recs.append({
+                            '선정일': d, '종목명': p['name'], '업종': p.get('sector', ''),
+                            '선정가': p.get('price'), '현재가': cur,
+                            '수익률%': round(ret, 1) if pd.notna(ret) else None,
+                            '점수': p.get('score'),
+                            '사유': ' / '.join(p.get('reasons', [])[:3]),
+                        })
+                if recs:
+                    hist_df = pd.DataFrame(recs)
+                    rets = pd.to_numeric(hist_df['수익률%'], errors='coerce').dropna()
+                    m1, m2, m3, m4 = st.columns(4)
+                    m1.metric("누적 선정", f"{len(hist_df)}건 ({len(picks_hist)}일)")
+                    m2.metric("평균 수익률", f"{rets.mean():+.1f}%" if len(rets) else "-")
+                    m3.metric("승률", f"{(rets > 0).mean()*100:.0f}%" if len(rets) else "-")
+                    m4.metric("최고/최저", f"{rets.max():+.1f}% / {rets.min():+.1f}%" if len(rets) else "-")
+                    st.dataframe(hist_df, use_container_width=True, height=380, column_config={
+                        '선정가': st.column_config.NumberColumn('선정가', format='%d원'),
+                        '현재가': st.column_config.NumberColumn('현재가', format='%d원'),
+                        '수익률%': st.column_config.NumberColumn('수익률', format='%+.1f%%'),
+                        '점수': st.column_config.NumberColumn('점수', format='%.1f'),
+                    })
 
         # ────────────────────────────────────────────────────────
         # 개별종목확인 탭 — 필터 무시하고 종목명/코드로 직접 검색

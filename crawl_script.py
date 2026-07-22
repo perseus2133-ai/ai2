@@ -1124,6 +1124,19 @@ def main():
     print("4단계: 누적 기록 저장...")
     save_history(df)
 
+    # 5단계: AI 데일리 3선 (종합 점수 상위 3종목 선정 → 누적 기록)
+    print("5단계: AI 데일리 3선 선정...")
+    try:
+        from daily_picks import generate_daily_picks
+        picks = generate_daily_picks(
+            df, SNAPSHOT_DIR,
+            os.path.join(DATA_DIR, 'daily_picks.json'),
+            today=now_kst().date())
+        for p in picks:
+            print(f"  🤖 {p['name']} (점수 {p['score']}) — {' / '.join(p['reasons'][:2])}")
+    except Exception as e:
+        print(f"[WARN] 데일리 3선 실패(무시): {e}")
+
     print(f"[{now_kst()}] ✅ 전체 완료!")
 
 
