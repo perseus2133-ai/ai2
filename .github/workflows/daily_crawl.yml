@@ -66,6 +66,7 @@ jobs:
         env:
           KAKAO_REST_KEY: ${{ secrets.KAKAO_REST_KEY }}
           KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
+          KAKAO_CLIENT_SECRET: ${{ secrets.KAKAO_CLIENT_SECRET }}
           APP_URL: ${{ secrets.APP_URL }}
           GH_PAT: ${{ secrets.GH_PAT }}
         run: python kakao_send.py

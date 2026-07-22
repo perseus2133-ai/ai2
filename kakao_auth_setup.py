@@ -32,6 +32,9 @@ def main():
     if not rest_key:
         print('REST API 키가 필요합니다.')
         return
+    # [카카오 로그인] > [보안] 에서 Client Secret을 '사용함'으로 켠 경우 필수.
+    # 안 켰으면 그냥 Enter (KOE010 에러의 주원인)
+    client_secret = input('Client Secret (안 켰으면 그냥 Enter): ').strip()
 
     auth_url = (f'https://kauth.kakao.com/oauth/authorize?response_type=code'
                 f'&client_id={rest_key}&redirect_uri={REDIRECT}&scope=talk_message')
@@ -44,22 +47,36 @@ def main():
     if 'code=' in code:
         code = code.split('code=')[-1].split('&')[0]
 
-    r = requests.post('https://kauth.kakao.com/oauth/token', data={
+    payload = {
         'grant_type': 'authorization_code',
         'client_id': rest_key,
         'redirect_uri': REDIRECT,
         'code': code,
-    }, timeout=15)
+    }
+    if client_secret:
+        payload['client_secret'] = client_secret
+    r = requests.post('https://kauth.kakao.com/oauth/token', data=payload, timeout=15)
     j = r.json()
     if 'refresh_token' not in j:
         print(f'\n❌ 토큰 발급 실패: {j}')
-        print('   (Redirect URI 등록·동의항목 설정을 확인하세요)')
+        ec = str(j.get('error_code') or '')
+        if ec == 'KOE010':
+            print('   → KOE010: REST API 키가 틀렸거나, Client Secret이 켜져 있는데')
+            print('     입력하지 않은 경우입니다.')
+            print('     [카카오 로그인] > [보안] > Client Secret 활성화 상태 확인 후')
+            print('     "사용함"이면 그 코드를 두 번째 질문에 입력하세요.')
+        elif ec == 'KOE320':
+            print('   → KOE320: code가 만료됐거나 이미 사용됨. 스크립트를 다시 실행하세요.')
+        else:
+            print('   (Redirect URI 등록·동의항목 설정을 확인하세요)')
         return
 
     print('\n' + '=' * 55)
-    print('✅ 발급 성공! GitHub Secrets에 이 두 값을 등록하세요:')
+    print('✅ 발급 성공! GitHub Secrets에 등록하세요:')
     print(f'  KAKAO_REST_KEY      = {rest_key}')
     print(f'  KAKAO_REFRESH_TOKEN = {j["refresh_token"]}')
+    if client_secret:
+        print(f'  KAKAO_CLIENT_SECRET = {client_secret}')
     print('=' * 55)
 
     # 테스트 발송

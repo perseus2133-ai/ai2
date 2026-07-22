@@ -32,17 +32,21 @@ PICKS_PATH = os.path.join(HERE, 'data', 'daily_picks.json')
 
 REST_KEY = os.environ.get('KAKAO_REST_KEY', '').strip()
 REFRESH_TOKEN = os.environ.get('KAKAO_REFRESH_TOKEN', '').strip()
+CLIENT_SECRET = os.environ.get('KAKAO_CLIENT_SECRET', '').strip()
 APP_URL = os.environ.get('APP_URL', '').strip() or 'https://github.com/perseus2133-ai/ai2'
 GH_PAT = os.environ.get('GH_PAT', '').strip()
 
 
 def refresh_access_token():
     """리프레시 토큰 → 액세스 토큰. 새 리프레시 토큰이 오면 시크릿 갱신 시도."""
-    r = requests.post('https://kauth.kakao.com/oauth/token', data={
+    payload = {
         'grant_type': 'refresh_token',
         'client_id': REST_KEY,
         'refresh_token': REFRESH_TOKEN,
-    }, timeout=15)
+    }
+    if CLIENT_SECRET:   # [카카오 로그인]>[보안] Client Secret '사용함'이면 필수
+        payload['client_secret'] = CLIENT_SECRET
+    r = requests.post('https://kauth.kakao.com/oauth/token', data=payload, timeout=15)
     j = r.json()
     if 'access_token' not in j:
         print(f'❌ 토큰 갱신 실패: {j}')
