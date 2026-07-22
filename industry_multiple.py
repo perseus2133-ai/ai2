@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-업종 상대 멀티플 기반 적정시총 밴드 계산.
+업종 상대 멀티플 기반 적정시총 밴드 계산 (EV·지배지분 보정판).
 
-- 멀티플: POP = 시가총액 / 영업이익 (peer-relative price-to-OP)
-- 피어 정의: 동일 업종 + 시총·영업이익 둘 다 양수 (대상 종목 제외)
+- 멀티플: EV / OP_adj
+    EV     = 시가총액 + 순차입금        (순차입금 결측 → 0 = 기존과 동일)
+    OP_adj = 영업이익 × 지배비율        (지배비율 결측 → 1 = 기존과 동일)
+  * 순차입금 차감: 부채가 큰 종목(예: 하나마이크론)의 멀티플이 시총 기준으로
+    과소평가돼 적정시총·괴리율이 과대 산출되는 문제 해결
+  * 지배비율(당기순이익(지배)/당기순이익): 상장 자회사 연결로 영업이익 100%가
+    잡히지만 주주 몫은 일부인 종목의 과대평가 해결
+- 적정시총 = 피어멀티플 × 대상 OP_adj − 대상 순차입금  (EV → equity 환원)
+- 피어 정의: 동일 업종 + EV·OP_adj 둘 다 양수 (대상 종목 제외)
 - 3가지 통계: median / aggregate(합계기반) / trimmed mean(10% 양측 절단)
 - 자동 폴백: 28E → 27E → 26E → 25E (양수 영업이익 기준)
 - '기타' 업종 또는 피어 0개 시: 빈 결과 + 사유 명시
@@ -24,6 +31,30 @@ import pandas as pd
 PEER_YEARS_PRIORITY = (2028, 2027, 2026, 2025)
 TRIM_PCT = 0.10                # 양측 10% 절단
 MIN_PEERS_FOR_TRIM = 5         # 절단 평균은 5개 이상일 때만 의미
+
+
+# ────────────────────────────────────────────────────────────
+# 0. EV·지배지분 보정 헬퍼 (데이터 결측 시 기존 동작으로 자동 폴백)
+# ────────────────────────────────────────────────────────────
+def _net_debt(row):
+    """순차입금(억). 결측 → 0 (EV = 시총, 기존 동작)."""
+    try:
+        v = float(row.get('순차입금'))
+        return v if pd.notna(v) else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _ctrl_ratio(row):
+    """지배비율 (당기순이익(지배)/당기순이익). 결측 → 1.0 (기존 동작).
+    크롤 단계에서 [0.2, 1.0] 클램프되지만 방어적으로 한 번 더."""
+    try:
+        v = float(row.get('지배비율'))
+        if pd.notna(v) and v > 0:
+            return min(1.0, max(0.2, v))
+    except (TypeError, ValueError):
+        pass
+    return 1.0
 
 
 # ────────────────────────────────────────────────────────────
@@ -102,6 +133,9 @@ def _empty_result():
         'n_peers':            0,
         'is_fallback_year':   False,
         'peer_status':        'no_year',   # ok / no_year / no_sector / no_peers
+        'ev_adjusted':        False,
+        'net_debt_used':      np.nan,
+        'ctrl_ratio_used':    np.nan,
     }
 
 
@@ -138,10 +172,18 @@ def compute_for_target(target_row, universe_df):
         out['peer_status'] = 'no_peers'
         return out
 
+    # ── EV·지배지분 보정 멀티플 = (시총 + 순차입금) / (영업이익 × 지배비율) ──
     op_col = f'영업이익_{year}'
     op_vals = pd.to_numeric(peers[op_col], errors='coerce')
     mcap    = pd.to_numeric(peers['시가총액'], errors='coerce')
-    pop     = (mcap / op_vals).replace([np.inf, -np.inf], np.nan).dropna()
+    nd      = peers.apply(_net_debt, axis=1) if len(peers) else pd.Series(dtype=float)
+    cr      = peers.apply(_ctrl_ratio, axis=1) if len(peers) else pd.Series(dtype=float)
+
+    ev      = mcap + nd
+    op_adj  = op_vals * cr
+    # EV<=0(순현금이 시총보다 큼) 또는 OP_adj<=0 피어는 멀티플 정의 불가 → 제외
+    valid   = ev.notna() & (ev > 0) & op_adj.notna() & (op_adj > 0)
+    pop     = (ev[valid] / op_adj[valid]).replace([np.inf, -np.inf], np.nan).dropna()
 
     if pop.empty:
         out['peer_status'] = 'no_peers'
@@ -151,9 +193,9 @@ def compute_for_target(target_row, universe_df):
     out['n_peers'] = int(len(pop))
     out['peer_pop_median'] = float(pop.median())
 
-    op_sum = float(op_vals.sum())
+    op_sum = float(op_adj[valid].sum())
     if op_sum > 0:
-        out['peer_pop_aggregate'] = float(mcap.sum() / op_sum)
+        out['peer_pop_aggregate'] = float(ev[valid].sum() / op_sum)
 
     if len(pop) >= MIN_PEERS_FOR_TRIM:
         sorted_pop = pop.sort_values()
@@ -164,11 +206,19 @@ def compute_for_target(target_row, universe_df):
         out['peer_pop_trimmed'] = float(pop.mean())
 
     # 5) 적정시총 밴드 + Upside
+    #    적정 EV = 멀티플 × 대상 OP_adj → 적정시총 = 적정 EV − 대상 순차입금
     multiples = [out['peer_pop_median'], out['peer_pop_aggregate'], out['peer_pop_trimmed']]
     multiples = [m for m in multiples if pd.notna(m) and m > 0]
 
-    if multiples and target_op > 0:
-        fairs = [m * target_op for m in multiples]
+    t_nd = _net_debt(target_row)
+    t_cr = _ctrl_ratio(target_row)
+    target_op_adj = target_op * t_cr
+    out['ev_adjusted'] = bool(abs(t_nd) > 1 or t_cr < 0.999)
+    out['net_debt_used'] = float(t_nd)
+    out['ctrl_ratio_used'] = float(t_cr)
+
+    if multiples and target_op_adj > 0:
+        fairs = [m * target_op_adj - t_nd for m in multiples]
         out['fair_min']    = float(min(fairs))
         out['fair_median'] = float(np.median(fairs))
         out['fair_max']    = float(max(fairs))

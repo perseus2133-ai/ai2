@@ -295,19 +295,85 @@ def _parse_fnguide_consensus_json(resp, stock_name=''):
             if cd and ym:
                 col_year[cd] = int(ym.group(1))
         dm = {}
+        ni_all, ni_ctrl = {}, {}   # 당기순이익 전체/지배 (지배비율 산출용)
         for row in obj.get('data') or []:
             name = str(row.get('NAME') or '').strip()
-            if name not in ('매출액', '영업이익'):
+            bucket = None
+            if name in ('매출액', '영업이익'):
+                if name not in dm:
+                    dm[name] = {}
+                bucket = dm[name]
+            elif name == '당기순이익':
+                bucket = ni_all
+            elif name == '당기순이익(지배)':
+                bucket = ni_ctrl
+            if bucket is None:
                 continue
-            if name not in dm:
-                dm[name] = {}
             for cd, yr in col_year.items():
                 val = parse_numeric(str(row.get(cd) if row.get(cd) is not None else ''))
-                if pd.notna(val) and (yr not in dm[name] or pd.isna(dm[name][yr])):
-                    dm[name][yr] = val
+                if pd.notna(val) and (yr not in bucket or pd.isna(bucket[yr])):
+                    bucket[yr] = val
+
+        # ── 지배비율 = 당기순이익(지배)/당기순이익 ──────────────────
+        # 하나마이크론처럼 상장 자회사를 연결한 종목의 NCI 조정용.
+        # 추정연도(26~28E) 평균 우선, 없으면 최근 실적연도. [0.2, 1.0] 클램프.
+        ratios = []
+        for y in (2026, 2027, 2028):
+            a, c = ni_all.get(y), ni_ctrl.get(y)
+            if a is not None and c is not None and a > 0 and c > 0:
+                ratios.append(c / a)
+        if not ratios:
+            for y in (2025, 2024, 2023):
+                a, c = ni_all.get(y), ni_ctrl.get(y)
+                if a is not None and c is not None and a > 0 and c > 0:
+                    ratios.append(c / a)
+                    break
+        if ratios:
+            dm['지배비율'] = round(min(1.0, max(0.2, sum(ratios) / len(ratios))), 4)
         return dm
     except Exception:
         return {}
+
+
+def scrape_fnguide_netdebt(stock_code, stock_name='', _max_retries=2):
+    """FnGuide FinanceRatio 페이지에서 순부채(=순차입금, 억) 최근값을 가져온다.
+    rtoAccumulate JSON의 NM='순부채' 행에서 가장 최근 non-null 값.
+    (음수 = 순현금 — 그대로 반환, EV 계산에서 자연스럽게 반영됨)
+    """
+    if _FG_tripped.is_set():
+        return None
+    session = get_session()
+    url = f'https://wcomp.fnguide.com/CompanyInfo/FinanceRatio?cmp_cd={str(stock_code).zfill(6)}'
+    for attempt in range(1, _max_retries + 1):
+        resp = None
+        try:
+            with _FNGUIDE_SEM:
+                resp = session.get(url, headers={'Referer': 'https://wcomp.fnguide.com/'},
+                                   timeout=(5, 12))
+        except Exception:
+            resp = None
+        if resp is None or resp.status_code != 200 or len(resp.text or '') < 5000:
+            if attempt < _max_retries:
+                time.sleep(0.3)
+            continue
+        try:
+            raw = _extract_js_object(resp.text, 'rtoAccumulate')
+            if not raw:
+                return None
+            obj = json.loads(raw)
+            header = obj.get('header') or []
+            cds = [h.get('CD') for h in header if h.get('CD')]
+            for row in obj.get('data') or []:
+                nm = str(row.get('NM') or row.get('NAME') or '').strip()
+                if nm == '순부채':
+                    vals = [parse_numeric(str(row.get(cd) if row.get(cd) is not None else ''))
+                            for cd in cds]
+                    vals = [v for v in vals if pd.notna(v)]
+                    return float(vals[-1]) if vals else None
+            return None
+        except Exception:
+            return None
+    return None
 
 
 def _parse_fnguide_response(resp, stock_name=''):
@@ -695,6 +761,17 @@ def scrape_naver_consensus(stock_code, stock_name):
                                 and yr in fg[mn] and pd.notna(fg[mn][yr]):
                             if mn not in dm: dm[mn] = {}
                             dm[mn][yr] = fg[mn][yr]
+            # 지배비율 (NCI 조정용 — Consensus 페이지에서 함께 파싱됨)
+            if isinstance(fg, dict) and fg.get('지배비율') is not None:
+                result['지배비율'] = fg['지배비율']
+        except:
+            pass
+
+        # 순차입금 (EV 기반 적정시총용 — FinanceRatio 페이지)
+        try:
+            nd = scrape_fnguide_netdebt(stock_code, stock_name)
+            if nd is not None:
+                result['순차입금'] = nd
         except:
             pass
 

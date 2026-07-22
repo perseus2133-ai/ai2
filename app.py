@@ -1732,6 +1732,9 @@ def _apply_peer_multiples(df):
         'n_peers':            0,
         'is_fallback_year':   False,
         'peer_status':        '',
+        'ev_adjusted':        False,
+        'net_debt_used':      np.nan,
+        'ctrl_ratio_used':    np.nan,
     }
     for c, default in peer_cols_init.items():
         if c not in df.columns:
@@ -1798,6 +1801,9 @@ def apply_peer_multiples_with_universe(df, universe_df):
         'n_peers':            0,
         'is_fallback_year':   False,
         'peer_status':        '',
+        'ev_adjusted':        False,
+        'net_debt_used':      np.nan,
+        'ctrl_ratio_used':    np.nan,
     }
     for c, default in peer_cols_init.items():
         df[c] = default
@@ -2593,6 +2599,24 @@ def render_stock_card(row, rank):
     fair_max      = row.get('fair_max', np.nan)
     upside        = row.get('upside_pct', np.nan)
     is_fb         = bool(row.get('is_fallback_year', False))
+    ev_adj        = bool(row.get('ev_adjusted', False))
+    nd_used       = row.get('net_debt_used', np.nan)
+    cr_used       = row.get('ctrl_ratio_used', np.nan)
+
+    # EV·지배지분 보정 배지 (보정이 실제 적용된 종목만)
+    ev_badge = ''
+    if ev_adj:
+        parts = []
+        if pd.notna(nd_used) and abs(nd_used) > 1:
+            parts.append(('순차입금 ' if nd_used > 0 else '순현금 ') + format_number(abs(nd_used)) + '억 반영')
+        if pd.notna(cr_used) and cr_used < 0.999:
+            parts.append(f'지배지분 {cr_used*100:.0f}% 조정')
+        tip = 'EV(시총+순차입금)/지배지분보정 영업이익 멀티플로 계산: ' + ' · '.join(parts)
+        ev_badge = (
+            f'<span title="{tip}" style="color:#62EFFF;font-size:0.66rem;font-weight:600;'
+            f'margin-left:6px;padding:1px 6px;border:1px solid rgba(98,239,255,0.35);'
+            f'border-radius:4px;">💠 EV·지배 보정</span>'
+        )
 
     if peer_status == 'no_sector':
         peer_html = (
@@ -2641,7 +2665,7 @@ def render_stock_card(row, rank):
             f'margin:8px 0;display:flex;flex-wrap:wrap;align-items:center;gap:18px;">'
 
             f'<div class="qcd-tech-label" style="display:flex;align-items:center;">'
-            f'🎯 업종 상대 멀티플{fb_label}</div>'
+            f'🎯 업종 상대 멀티플{fb_label}{ev_badge}</div>'
 
             f'<div class="qcd-tech-item"><span class="k">피어 멀티플 (중앙값)</span>'
             f'<span class="v" style="color:#62EFFF;">{peer_med:.1f}'
