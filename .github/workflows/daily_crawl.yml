@@ -2,8 +2,10 @@ name: 📊 Daily Stock Crawl
 
 on:
   schedule:
-    # 매일 오전 1시 KST (= 16:00 UTC 전날)
-    - cron: '0 16 * * *'
+    # 매일 오전 5시 KST 예약 (= 20:00 UTC 전날)
+    # GitHub Actions 스케줄러는 정시 보장이 없어 통상 1~2시간 지연 →
+    # 실제 크롤 시작 05~06시, 카톡 도착 06~07시경을 노린 설정.
+    - cron: '0 20 * * *'
   workflow_dispatch:
     # 수동 실행 버튼 (GitHub Actions 탭에서 직접 실행 가능)
     inputs:
