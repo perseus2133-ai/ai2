@@ -25,6 +25,30 @@ except Exception:
     pass
 
 REDIRECT = 'https://localhost'
+TOKEN_URL = 'https://kauth.kakao.com/oauth/token'
+
+
+def verify_credentials(rest_key, client_secret):
+    """브라우저 왕복 없이 자격증명(키+시크릿)만 즉시 검증.
+
+    일부러 무효한 code를 보낸다:
+      - 자격증명이 맞으면 code 검증 단계까지 가서 KOE320(code 오류)
+      - 자격증명이 틀리면 그 전에 KOE010(Bad client credentials)
+    실제 code를 소모하지 않으므로 몇 번이든 반복 가능.
+    """
+    payload = {
+        'grant_type': 'authorization_code',
+        'client_id': rest_key,
+        'redirect_uri': REDIRECT,
+        'code': 'CREDENTIAL_CHECK_ONLY',
+    }
+    if client_secret:
+        payload['client_secret'] = client_secret
+    try:
+        j = requests.post(TOKEN_URL, data=payload, timeout=15).json()
+    except Exception as e:
+        return False, {'error': str(e)}
+    return str(j.get('error_code') or '') != 'KOE010', j
 
 
 def main():
@@ -35,6 +59,30 @@ def main():
     # [카카오 로그인] > [보안] 에서 Client Secret을 '사용함'으로 켠 경우 필수.
     # 안 켰으면 그냥 Enter (KOE010 에러의 주원인)
     client_secret = input('Client Secret (안 켰으면 그냥 Enter): ').strip()
+
+    # ── 자격증명 사전 검증 (브라우저 열기 전에 빠르게 판별) ──
+    print(f'\n🔎 자격증명 확인 중... (키 {len(rest_key)}자, 시크릿 {len(client_secret)}자)')
+    ok, resp = verify_credentials(rest_key, client_secret)
+    if not ok:
+        print('\n❌ 자격증명이 거부됐습니다 (KOE010).')
+        print('   아래를 확인하세요:')
+        print('   1) REST API 키: [내 애플리케이션] > [앱 키] 의 "REST API 키" 값인지')
+        print('      (JavaScript 키·네이티브 앱 키·어드민 키가 아님)')
+        print('   2) Client Secret: [카카오 로그인] > [보안] 의 "카카오 로그인" 행 코드인지')
+        print('      (아래쪽 "비즈니스 인증" 코드가 아님)')
+        print('   3) 앞뒤 공백/줄바꿈이 섞이지 않았는지')
+        print(f'   서버 응답: {resp}')
+        again = input('\n다시 입력할까요? (y/Enter=종료): ').strip().lower()
+        if again != 'y':
+            return
+        rest_key = input('REST API 키: ').strip()
+        client_secret = input('Client Secret (없으면 Enter): ').strip()
+        ok, resp = verify_credentials(rest_key, client_secret)
+        if not ok:
+            print(f'\n❌ 여전히 거부됩니다: {resp}')
+            print('   → Client Secret을 OFF로 끄고 (활성화 토글) 다시 시도해보세요.')
+            return
+    print('✅ 자격증명 통과 — 이제 로그인 동의를 진행합니다.')
 
     auth_url = (f'https://kauth.kakao.com/oauth/authorize?response_type=code'
                 f'&client_id={rest_key}&redirect_uri={REDIRECT}&scope=talk_message')
