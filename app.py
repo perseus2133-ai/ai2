@@ -1626,6 +1626,8 @@ def apply_filters(df, rev_thresh, op_thresh, min_vol, markets, req_min_rev_500=T
         return (any(x >= rev_thresh for x in rv)) or (any(x >= op_thresh for x in ov))
     df = df[df.apply(meets, axis=1)].copy()
     df = compute_card_fields(df)
+    if '가시성기준_정렬점수' not in df.columns:      # 방어 (옛 캐시/빈 결과)
+        return df.reset_index(drop=True)
     return df.sort_values('가시성기준_정렬점수', ascending=False).reset_index(drop=True)
 
 
@@ -1635,6 +1637,15 @@ def compute_card_fields(df):
     영업이익_26이후_최대 — 필터링 없이 전 종목에 적용 가능.
     """
     if df.empty:
+        # 빈 결과(필터가 너무 빡세 0건)여도 스키마는 유지해야 한다.
+        # 그러지 않으면 호출부의 sort_values('가시성기준_정렬점수')가 KeyError.
+        df = df.copy()
+        for c, dtype in (('영업이익_26이후_최대', float), ('종합성장점수', float),
+                         ('미래가시성_순위', float), ('미래가시성_성장률', float),
+                         ('가시성기준_정렬점수', float), ('Forward_PER', float),
+                         ('PEG', float)):
+            if c not in df.columns:
+                df[c] = pd.Series(dtype=dtype)
         return df
     df = df.copy()
 
@@ -3233,7 +3244,11 @@ def main():
                 # Forward PER, PEG는 낮을수록 좋으므로 기본 오름차순
                 asc_default = sort_col in ('Forward_PER', 'PEG')
                 sort_order = st.selectbox("순서", ["오름차순", "내림차순"] if asc_default else ["내림차순", "오름차순"], index=0, label_visibility="collapsed")
-            df_s = df.sort_values(sort_col, ascending=(sort_order=="오름차순"), na_position='last').reset_index(drop=True)
+            if sort_col in df.columns:
+                df_s = df.sort_values(sort_col, ascending=(sort_order == "오름차순"),
+                                      na_position='last').reset_index(drop=True)
+            else:   # 빈 결과이거나 옛 캐시라 해당 정렬 컬럼이 없는 경우
+                df_s = df.reset_index(drop=True)
 
             page_size = 20
             total_pages = max(1, (len(df_s)-1)//page_size+1)
