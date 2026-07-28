@@ -1,15 +1,6 @@
 {
-  "cash": 10372000.0,
+  "cash": 5191000.0,
   "holdings": {
-    "352820": {
-      "종목명": "하이브",
-      "shares": 77,
-      "avg_price": 232000.0,
-      "peak_price": 232000.0,
-      "bought": "2026-07-08",
-      "tp50_done": false,
-      "tp100_done": false
-    },
     "267270": {
       "종목명": "HD건설기계",
       "shares": 142,
@@ -37,16 +28,25 @@
       "tp50_done": false,
       "tp100_done": false
     },
-    "005935": {
-      "종목명": "삼성전자우",
-      "shares": 90,
-      "avg_price": 199300.0,
-      "peak_price": 199300.0,
-      "bought": "2026-07-08",
+    "317400": {
+      "종목명": "자이에스앤디",
+      "shares": 2858,
+      "avg_price": 5940.0,
+      "peak_price": 5940.0,
+      "bought": "2026-07-29",
+      "tp50_done": false,
+      "tp100_done": false
+    },
+    "332570": {
+      "종목명": "PS일렉트로닉스",
+      "shares": 2252,
+      "avg_price": 7540.0,
+      "peak_price": 7540.0,
+      "bought": "2026-07-29",
       "tp50_done": false,
       "tp100_done": false
     }
   },
   "started": "2026-07-08",
-  "last_rebalance": "2026-07-22"
+  "last_rebalance": "2026-07-29"
 }
