@@ -3420,35 +3420,57 @@ def main():
                                 pass
 
                 # ── 누적 기록 ──
-                st.markdown("<h4 style='color:#FFFFFF;margin-top:18px;'>📜 누적 기록</h4>",
+                st.markdown("<h4 style='color:#FFFFFF;margin-top:18px;'>📜 누적 성과 (종목별 · 최초 선정 기준)</h4>",
                             unsafe_allow_html=True)
-                recs = []
-                for d in sorted(picks_hist.keys(), reverse=True):
+                # 종목별로 '최초 선정일·최초 선정가'만 남긴다 (같은 종목이 여러 날
+                # 뽑혔어도 처음 뽑힌 시점 기준으로 수익률을 추적).
+                first = {}   # code -> record
+                for d in sorted(picks_hist.keys()):          # 과거→현재 순회
                     for p in (picks_hist[d] or []):
-                        cur = cur_price_map.get(p['code'])
-                        ret = (cur / p['price'] - 1) * 100 if (cur and p.get('price')) else np.nan
-                        recs.append({
-                            '선정일': d, '시장': p.get('market', ''), '종목명': p['name'],
-                            '업종': p.get('sector', ''),
-                            '선정가': p.get('price'), '현재가': cur,
-                            '수익률%': round(ret, 1) if pd.notna(ret) else None,
-                            '점수': p.get('score'),
-                            '사유': ' / '.join(p.get('reasons', [])[:3]),
-                        })
+                        c = p['code']
+                        if c not in first:
+                            first[c] = {'선정일': d, 'p': p, 'n': 1}
+                        else:
+                            first[c]['n'] += 1               # 재선정 횟수 누적
+                recs = []
+                for c, info in first.items():
+                    p = info['p']
+                    fp = p.get('price')
+                    cur = cur_price_map.get(c)
+                    ret = (cur / fp - 1) * 100 if (cur and fp) else np.nan
+                    recs.append({
+                        '최초선정일': info['선정일'],
+                        '시장': p.get('market', ''), '종목명': p['name'],
+                        '업종': p.get('sector', ''),
+                        '최초선정가': fp, '현재가': cur,
+                        '수익률%': round(ret, 1) if pd.notna(ret) else None,
+                        '재선정': info['n'],
+                    })
                 if recs:
                     hist_df = pd.DataFrame(recs)
-                    rets = pd.to_numeric(hist_df['수익률%'], errors='coerce').dropna()
+                    # 수익률 내림차순 정렬 + 순위 부여 (NaN은 맨 뒤)
+                    hist_df = hist_df.sort_values('수익률%', ascending=False,
+                                                  na_position='last').reset_index(drop=True)
+                    r_ = pd.to_numeric(hist_df['수익률%'], errors='coerce')
+                    hist_df.insert(0, '순위', r_.rank(ascending=False, method='min').astype('Int64'))
+                    rets = r_.dropna()
+
                     m1, m2, m3, m4 = st.columns(4)
-                    m1.metric("누적 선정", f"{len(hist_df)}건 ({len(picks_hist)}일)")
+                    m1.metric("추적 종목", f"{len(hist_df)}개")
                     m2.metric("평균 수익률", f"{rets.mean():+.1f}%" if len(rets) else "-")
                     m3.metric("승률", f"{(rets > 0).mean()*100:.0f}%" if len(rets) else "-")
                     m4.metric("최고/최저", f"{rets.max():+.1f}% / {rets.min():+.1f}%" if len(rets) else "-")
-                    st.dataframe(hist_df, use_container_width=True, height=380, column_config={
-                        '선정가': st.column_config.NumberColumn('선정가', format='%d원'),
+
+                    st.dataframe(hist_df, use_container_width=True, height=440,
+                                 hide_index=True, column_config={
+                        '순위': st.column_config.NumberColumn('순위', format='%d위', width='small'),
+                        '최초선정가': st.column_config.NumberColumn('최초선정가', format='%d원'),
                         '현재가': st.column_config.NumberColumn('현재가', format='%d원'),
                         '수익률%': st.column_config.NumberColumn('수익률', format='%+.1f%%'),
-                        '점수': st.column_config.NumberColumn('점수', format='%.1f'),
+                        '재선정': st.column_config.NumberColumn('선정횟수', format='%d회', width='small'),
                     })
+                    st.caption("※ 같은 종목이 여러 번 뽑혀도 **최초 선정일·최초 선정가** 기준. "
+                               "수익률 = (현재가 / 최초선정가 − 1). 순위는 수익률 내림차순.")
 
         # ────────────────────────────────────────────────────────
         # 개별종목확인 탭 — 필터 무시하고 종목명/코드로 직접 검색
