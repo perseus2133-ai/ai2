@@ -32,7 +32,7 @@
       "종목명": "자이에스앤디",
       "shares": 2858,
       "avg_price": 5940.0,
-      "peak_price": 6670.0,
+      "peak_price": 7670.0,
       "bought": "2026-07-29",
       "tp50_done": false,
       "tp100_done": false
@@ -41,12 +41,12 @@
       "종목명": "PS일렉트로닉스",
       "shares": 2252,
       "avg_price": 7540.0,
-      "peak_price": 7680.0,
+      "peak_price": 8240.0,
       "bought": "2026-07-29",
       "tp50_done": false,
       "tp100_done": false
     }
   },
   "started": "2026-07-08",
-  "last_rebalance": "2026-07-29"
+  "last_rebalance": "2026-08-05"
 }
