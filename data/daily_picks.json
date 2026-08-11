@@ -2226,5 +2226,111 @@
     "ROE 27%"
    ]
   }
+ ],
+ "2026-08-12": [
+  {
+   "code": "005930",
+   "name": "삼성전자",
+   "market": "KOSPI",
+   "sector": "반도체와반도체장비",
+   "price": 239500.0,
+   "mcap": 14001837.0,
+   "score": 85.6,
+   "rev_score": 2.3,
+   "upside": 257.6,
+   "reasons": [
+    "영업이익 컨센 30일 +2.3% 상향",
+    "업종 대비 Upside +258% (EV·지배 보정, 저평가)",
+    "영업이익 CAGR(→28E) +134%/년",
+    "OBV 매집 · MACD 상승",
+    "ROE 19%"
+   ]
+  },
+  {
+   "code": "267270",
+   "name": "HD건설기계",
+   "market": "KOSPI",
+   "sector": "기계",
+   "price": 142000.0,
+   "mcap": 68049.0,
+   "score": 83.6,
+   "rev_score": 7.0,
+   "upside": 276.5,
+   "reasons": [
+    "영업이익 컨센 30일 +7.0% 상향",
+    "업종 대비 Upside +276% (EV·지배 보정, 저평가)",
+    "영업이익 CAGR(→28E) +85%/년",
+    "OBV 매집 · MACD 상승"
+   ]
+  },
+  {
+   "code": "108670",
+   "name": "LX하우시스",
+   "market": "KOSPI",
+   "sector": "건축자재",
+   "price": 35300.0,
+   "mcap": 3166.0,
+   "score": 83.3,
+   "rev_score": 17.0,
+   "upside": 235.3,
+   "reasons": [
+    "영업이익 컨센 30일 +17.0% 상향",
+    "업종 대비 Upside +235% (EV·지배 보정, 저평가)",
+    "영업이익 CAGR(→28E) +120%/년",
+    "OBV 매집 · MACD 상승"
+   ]
+  },
+  {
+   "code": "061090",
+   "name": "세나테크놀로지",
+   "market": "KOSDAQ",
+   "sector": "통신장비",
+   "price": 47250.0,
+   "mcap": 2583.0,
+   "score": 92.3,
+   "rev_score": 29.9,
+   "upside": 240.0,
+   "reasons": [
+    "영업이익 컨센 30일 +29.9% 상향",
+    "업종 대비 Upside +240% (EV·지배 보정, 저평가)",
+    "영업이익 CAGR(→28E) +82%/년",
+    "OBV 매집 · MACD 상승"
+   ]
+  },
+  {
+   "code": "382800",
+   "name": "지앤비에스 에코",
+   "market": "KOSDAQ",
+   "sector": "반도체와반도체장비",
+   "price": 5560.0,
+   "mcap": 1770.0,
+   "score": 87.5,
+   "rev_score": 6.4,
+   "upside": 142.6,
+   "reasons": [
+    "영업이익 컨센 30일 +6.4% 상향",
+    "업종 대비 Upside +143% (EV·지배 보정, 저평가)",
+    "영업이익 CAGR(→28E) +80%/년",
+    "OBV 매집 · MACD 상승"
+   ]
+  },
+  {
+   "code": "043260",
+   "name": "성호전자",
+   "market": "KOSDAQ",
+   "sector": "전기제품",
+   "price": 19700.0,
+   "mcap": 14133.0,
+   "score": 81.8,
+   "rev_score": 0.8,
+   "upside": 218.0,
+   "reasons": [
+    "영업이익 컨센 30일 +0.8% 상향",
+    "업종 대비 Upside +218% (EV·지배 보정, 저평가)",
+    "영업이익 CAGR(→28E) +213%/년",
+    "OBV 매집 · MACD 상승",
+    "ROE 113%"
+   ]
+  }
  ]
 }
