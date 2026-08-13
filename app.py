@@ -754,13 +754,92 @@ button[data-baseweb="tab"][aria-selected="true"] > div[data-testid="stMarkdownCo
 
 #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
 
+/* ============================================================
+   📱 모바일 최적화 (≤768px) — 데스크톱 레이아웃은 그대로 두고
+   좁은 화면에서만 재배치한다.
+   해결 대상(375px 실측):
+     ① 탭 7개가 1469px로 넘쳐 뒤쪽 탭 접근 불가 → 가로 스크롤 + 압축
+     ② 보조지표 박스가 3단 가로(row)라 '종합 판정'이 화면 밖(574px)
+        → 세로(column) 스택으로 전환
+     ③ 카드 여백/폰트가 커서 정보 밀도 낮음 → 압축
+   ============================================================ */
 @media (max-width: 768px) {
+    /* 본문 좌우 여백 최소화 — 좁은 화면 폭을 최대한 활용 */
+    .block-container { padding-left: 0.7rem !important; padding-right: 0.7rem !important;
+                       padding-top: 2.2rem !important; }
+
     .quant-card-light { padding: 12px 10px; }
     .hero-header { padding-bottom: 12px; }
-    .rainbow-title { font-size: 1.6rem; }
-    .hero-header p { font-size: 0.8rem; }
-    div.evidence-scroll { overflow-x: auto; white-space: nowrap; padding-bottom: 5px; }
+    .rainbow-title { font-size: 1.5rem; }
+    .hero-header p { font-size: 0.75rem; }
+    div.evidence-scroll { overflow-x: auto; white-space: nowrap; padding-bottom: 5px;
+                          -webkit-overflow-scrolling: touch; }
     div.evidence-scroll > div { min-width: 480px; }
+
+    /* ① 탭 — 줄바꿈 대신 가로 스크롤(스와이프), 크기 압축 */
+    div[data-baseweb="tab-list"], [data-testid="stTabs"] [role="tablist"] {
+        overflow-x: auto !important; flex-wrap: nowrap !important; gap: 5px !important;
+        scrollbar-width: none; -webkit-overflow-scrolling: touch;
+    }
+    div[data-baseweb="tab-list"]::-webkit-scrollbar,
+    [data-testid="stTabs"] [role="tablist"]::-webkit-scrollbar { display: none; }
+    button[data-baseweb="tab"], button[role="tab"] {
+        padding: 8px 12px !important; flex: 0 0 auto !important; white-space: nowrap;
+        margin-right: 0 !important;
+    }
+    button[data-baseweb="tab"] > div[data-testid="stMarkdownContainer"] > p,
+    button[role="tab"] * { font-size: 0.85rem !important; }
+    button[data-baseweb="tab"][aria-selected="true"] > div[data-testid="stMarkdownContainer"] > p,
+    button[role="tab"][aria-selected="true"] * { font-size: 0.88rem !important; }
+
+    /* 상단 요약 메트릭 카드 — 4개가 좁게 들어가도 숫자가 잘리지 않게 */
+    .metric-card { padding: 9px 5px; }
+    .metric-label { font-size: 0.62rem; line-height: 1.25; }
+    .metric-value { font-size: 1.0rem; }
+
+    /* 카드 전체 여백/헤더 압축 */
+    .quant-card-dark { padding: 13px 12px; border-radius: 12px; margin-bottom: 12px; }
+    .qcd-name { font-size: 1.02rem; }
+    .qcd-code { font-size: 0.75rem; }
+    .qcd-rank { font-size: 0.72rem; padding: 2px 7px; }
+    .qcd-badge-kospi, .qcd-badge-kosdaq { font-size: 0.63rem; padding: 2px 6px; }
+    .qcd-naver-link { padding: 5px 9px; font-size: 0.7rem; }
+
+    /* 현재가·거래량·수급 등 통계 라인: 간격 좁히고 폰트 축소 */
+    .qcd-stat-label { font-size: 0.63rem; }
+    .qcd-stat-val { font-size: 0.86rem; }
+
+    /* 지표 pill: 6개가 2~3줄로 자연스럽게 접히도록 */
+    .qcd-pill { padding: 6px 9px; min-width: 60px; border-radius: 8px; }
+    .qcd-pill .lbl { font-size: 0.6rem; }
+    .qcd-pill .val { font-size: 0.88rem; }
+
+    /* ② 보조지표 박스: 좌/중/우 3단 → 세로 스택 (화면 밖 이탈 해결) */
+    .qcd-tech-box { flex-direction: column !important; gap: 10px !important;
+                    padding: 10px 12px; }
+    .qcd-tech-mid, .qcd-tech-right {
+        border-left: none !important;
+        border-top: 1px solid rgba(74,85,104,0.6);
+        padding-left: 0 !important; padding-top: 9px;
+        min-width: 0 !important; align-items: flex-start !important;
+        text-align: left !important;
+    }
+    .qcd-verdict-big { font-size: 1.2rem; }
+    .qcd-verdict-reason { text-align: left !important; }
+    .qcd-tech-item .k { font-size: 0.65rem; }
+    .qcd-tech-item .v { font-size: 0.86rem; }
+    .qcd-tech-label { font-size: 0.66rem; }
+
+    /* 차트/업종멀티플/재무소스 박스 — 폭 제한 해제 + 여백 축소 */
+    .qcd-chart-box { max-width: 100% !important; padding: 7px 8px 3px 8px; }
+    .qcd-peer-box { flex-direction: column; align-items: flex-start !important;
+                    gap: 8px !important; padding: 9px 12px; }
+    .qcd-evidence { padding: 9px 10px; }
+    .qcd-evidence .head { font-size: 0.65rem; }
+
+    /* 사이드바 내 위젯 폰트 소폭 축소 (필터 조작 편의) */
+    [data-testid="stSidebar"] .stSlider label,
+    [data-testid="stSidebar"] .stSelectbox label { font-size: 0.8rem !important; }
 }
 </style>
 """, unsafe_allow_html=True)
