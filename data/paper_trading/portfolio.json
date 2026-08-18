@@ -1,5 +1,5 @@
 {
-  "cash": 5191000.0,
+  "cash": 14806200.0,
   "holdings": {
     "267270": {
       "종목명": "HD건설기계",
@@ -23,18 +23,18 @@
       "종목명": "S-Oil",
       "shares": 141,
       "avg_price": 127400.0,
-      "peak_price": 151200.0,
+      "peak_price": 153600.0,
       "bought": "2026-07-08",
       "tp50_done": false,
       "tp100_done": false
     },
     "317400": {
       "종목명": "자이에스앤디",
-      "shares": 2858,
+      "shares": 1906,
       "avg_price": 5940.0,
-      "peak_price": 10030.0,
+      "peak_price": 10100.0,
       "bought": "2026-07-29",
-      "tp50_done": false,
+      "tp50_done": true,
       "tp100_done": false
     },
     "332570": {
@@ -48,5 +48,5 @@
     }
   },
   "started": "2026-07-08",
-  "last_rebalance": "2026-08-12"
+  "last_rebalance": "2026-08-19"
 }
