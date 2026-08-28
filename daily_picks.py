@@ -33,6 +33,8 @@ import datetime
 import numpy as np
 import pandas as pd
 
+import snapshot_io
+
 REV_WEIGHTS = {2026: 0.5, 2027: 0.3, 2028: 0.2}
 FACTOR_W = {'rev': 30, 'growth': 20, 'value': 20, 'flow': 15, 'quality': 15}
 SHORTLIST_N = 30
@@ -47,21 +49,10 @@ def _is_preferred(name):
 
 def _load_snapshot_before(snapshot_dir, days_ago=30, today=None):
     """today 기준 days_ago일 이전(가장 가까운) 스냅샷 dict."""
-    if not os.path.isdir(snapshot_dir):
-        return {}
     today = today or datetime.date.today()
-    cutoff = (today - datetime.timedelta(days=days_ago)).isoformat()
-    chosen = None
-    for p in sorted(glob.glob(os.path.join(snapshot_dir, '*.json'))):
-        d = os.path.basename(p)[:-5]
-        if re.match(r'\d{4}-\d{2}-\d{2}$', d) and d <= cutoff:
-            chosen = p
-    if chosen is None:
-        return {}
-    try:
-        return json.load(open(chosen, encoding='utf-8'))
-    except Exception:
-        return {}
+    cutoff = today - datetime.timedelta(days=days_ago)
+    _, path = snapshot_io.find_snapshot_on_or_before(snapshot_dir, cutoff)
+    return snapshot_io.read_snapshot(path) if path else {}
 
 
 def _revision_score(df, snap):

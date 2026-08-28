@@ -15,6 +15,7 @@ import datetime
 import threading
 import os
 import json
+import snapshot_io
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from zoneinfo import ZoneInfo
 import warnings
@@ -836,30 +837,14 @@ def scrape_naver_consensus(stock_code, stock_name):
 # 컨센서스 스냅샷 저장 (Estimates Revision 분석용)
 # ============================================================
 def save_consensus_snapshot(df):
-    """오늘자 컨센서스 추정치를 날짜별 JSON으로 저장."""
-    if df is None or df.empty:
-        return
-    os.makedirs(SNAPSHOT_DIR, exist_ok=True)
-    today = now_kst().strftime('%Y-%m-%d')
-    path = os.path.join(SNAPSHOT_DIR, f'{today}.json')
-    cols = [f'{m}_{y}' for m in ('매출액', '영업이익') for y in (2025, 2026, 2027, 2028)]
-    snap = {}
-    for _, row in df.iterrows():
-        code = str(row.get('종목코드', '')).zfill(6)
-        if not code or code == '000000':
-            continue
-        entry = {}
-        for c in cols:
-            v = row.get(c, np.nan)
-            if pd.notna(v):
-                entry[c] = float(v)
-        if entry:
-            snap[code] = entry
-    try:
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(snap, f, ensure_ascii=False)
-    except:
-        pass
+    """오늘자 컨센서스·밸류에이션 스냅샷을 날짜별 CSV로 저장.
+
+    저장 필드는 snapshot_io.ALL_FIELDS — 컨센 8(매출액·영업이익 × 25~28E)
+    + 밸류 5(지배비율·순차입금·시가총액·현재가·PER) + 라벨 2(업종·시장).
+    밸류·라벨은 훗날 수익률을 '이익 배수 × 멀티플 배수'로 분해하기 위한
+    시점 재료다 — 역채움을 하지 않으므로 지금 안 남기면 복원할 수 없다."""
+    if snapshot_io.save_snapshot(df, SNAPSHOT_DIR, now_kst().strftime('%Y-%m-%d')):
+        print(f"  스냅샷 저장 완료 ({len(snapshot_io.ALL_FIELDS)}개 필드)")
 
 
 def write_fnguide_health(df):

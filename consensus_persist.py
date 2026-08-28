@@ -11,7 +11,7 @@
 
 해결:
     컨센서스 추정치는 천천히(월 단위) 바뀌므로, 이번 크롤에서 NaN이면
-    최근 스냅샷(data/consensus_snapshots/*.json)에 남아 있는
+    최근 스냅샷(data/consensus_snapshots/*.csv, 구 *.json)에 남아 있는
     '마지막으로 받은 좋은 값'을 가져와 메운다(carry-forward).
     기본 보존 한도 45일 — 그보다 오래된 값은 신선하지 않다고 보고 버린다.
 
@@ -27,7 +27,11 @@ import datetime
 import numpy as np
 import pandas as pd
 
+import snapshot_io
+
 # carry-forward 대상 (스냅샷에 저장되는 8개 키)
+# 스냅샷에는 밸류·라벨 필드도 함께 저장되지만, carry-forward는 이 목록만
+# 명시적으로 순회한다 — 시총·현재가 같은 시점 값이 과거에서 끌려오면 안 된다.
 CARRY_FIELDS = [f'{m}_{y}'
                 for m in ('매출액', '영업이익')
                 for y in (2025, 2026, 2027, 2028)]
@@ -52,10 +56,7 @@ def build_last_known_good(snapshot_dir, today=None, max_age_days=DEFAULT_MAX_AGE
         today = datetime.date.today()
 
     files = []
-    for fp in glob.glob(os.path.join(snapshot_dir, '*.json')):
-        d = _parse_snapshot_date(fp)
-        if d is None:
-            continue
+    for d, fp in snapshot_io.list_snapshots(snapshot_dir):
         age = (today - d).days
         if age < 0 or age > max_age_days:
             continue
@@ -65,10 +66,8 @@ def build_last_known_good(snapshot_dir, today=None, max_age_days=DEFAULT_MAX_AGE
 
     lkg = {}
     for d, fp in files:
-        try:
-            with open(fp, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-        except Exception:
+        data = snapshot_io.read_snapshot(fp)
+        if not data:
             continue
         d_str = d.strftime('%Y-%m-%d')
         for code, entry in data.items():

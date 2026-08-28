@@ -21,7 +21,7 @@ gicode를 넣어도 기본종목(삼성전자) 페이지가 나왔던 것. 신�
 사용: 27_28_갱신.bat 더블클릭
 옵션: --no-push (push 생략) / --quota N (요청 수 강제)
 """
-import sys, os, time, json, random, subprocess, glob
+import sys, os, time, json, random, subprocess, glob, datetime
 
 try:
     sys.stdout.reconfigure(encoding='utf-8')
@@ -34,6 +34,7 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from crawl_script import scrape_fnguide_supplement, CSV_FILE, SNAPSHOT_DIR, now_kst
+import snapshot_io
 
 STATS_FILE = os.path.join(HERE, '.fnguide_stats.json')   # 로컬 전용(.gitignore)
 
@@ -71,15 +72,11 @@ def save_stats(st):
 def recent_fresh_codes(days=FRESH_WINDOW_DAYS):
     """최근 N일 스냅샷에서 27/28을 fresh로 받은 종목코드 집합."""
     codes = set()
-    cutoff = (now_kst().date() - pd.Timedelta(days=days)).isoformat()
-    for path in glob.glob(os.path.join(SNAPSHOT_DIR, '*.json')):
-        d = os.path.basename(path).replace('.json', '')
+    cutoff = now_kst().date() - datetime.timedelta(days=days)
+    for d, path in snapshot_io.list_snapshots(SNAPSHOT_DIR):
         if d < cutoff:
             continue
-        try:
-            snap = json.load(open(path, encoding='utf-8'))
-        except Exception:
-            continue
+        snap = snapshot_io.read_snapshot(path)
         for c, e in snap.items():
             if e.get('영업이익_2027') is not None or e.get('영업이익_2028') is not None:
                 codes.add(c)
@@ -117,13 +114,13 @@ def main():
     op27 = pd.to_numeric(df.get('영업이익_2027'), errors='coerce')
     op28 = pd.to_numeric(df.get('영업이익_2028'), errors='coerce')
 
-    snap_path = os.path.join(SNAPSHOT_DIR, f'{today}.json')
+    # 오늘자 스냅샷을 읽어 위에 얹는다(read-modify-write). 아침 크롤이 남긴
+    # 밸류·라벨 필드는 entry에 그대로 실려 있어 되쓸 때 보존된다.
     snap = {}
-    if os.path.exists(snap_path):
-        try:
-            snap = json.load(open(snap_path, encoding='utf-8'))
-        except Exception:
-            snap = {}
+    for _d, _p in snapshot_io.list_snapshots(SNAPSHOT_DIR):
+        if _d.isoformat() == today:
+            snap = snapshot_io.read_snapshot(_p)
+            break
 
     # 2) 갱신 대상: 27/28 보유(과거 포함) 종목 - 최근 7일 fresh 제외, stale 순
     target = df[op27.notna() | op28.notna()].copy()
@@ -197,9 +194,8 @@ def main():
         print(f'📈 한도 학습: 무차단 완주 → 다음 안전선 {stats["safe_limit"]}')
     save_stats(stats)
 
-    # 4) 스냅샷 저장
-    os.makedirs(SNAPSHOT_DIR, exist_ok=True)
-    json.dump(snap, open(snap_path, 'w', encoding='utf-8'), ensure_ascii=False)
+    # 4) 스냅샷 저장 (CSV)
+    snapshot_io.save_snapshot_dict(snap, SNAPSHOT_DIR, today)
     print(f'\n✅ fresh 27/28: {got}개 (요청 {tried}개) → 스냅샷({today}) 저장')
 
     if got == 0:

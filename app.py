@@ -17,6 +17,7 @@ import threading
 import os
 import json
 import io
+import snapshot_io
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from zoneinfo import ZoneInfo
 import warnings
@@ -68,31 +69,15 @@ def _load_snapshot_n_days_ago(days_ago=30):
     """오늘 기준 days_ago 일 전(또는 가장 가까운 과거) 스냅샷 dict 반환.
     반환: (snap_dict, snap_date_str). 없으면 ({}, None).
     """
-    if not os.path.isdir(SNAPSHOT_DIR):
-        return {}, None
-    files = [f for f in os.listdir(SNAPSHOT_DIR) if f.endswith('.json')]
-    if not files:
-        return {}, None
-    today_d = now_kst().date()
-    target  = today_d - datetime.timedelta(days=days_ago)
-    candidates = []
-    for f in files:
-        try:
-            d = datetime.datetime.strptime(f.replace('.json',''), '%Y-%m-%d').date()
-            candidates.append((d, f))
-        except Exception:
-            pass
+    candidates = snapshot_io.list_snapshots(SNAPSHOT_DIR)
     if not candidates:
         return {}, None
-    candidates.sort()
+    target = now_kst().date() - datetime.timedelta(days=days_ago)
     # target 이하 중 가장 큰 날짜 (없으면 가장 오래된 것 사용)
     before = [c for c in candidates if c[0] <= target]
-    snap_date, fname = before[-1] if before else candidates[0]
-    try:
-        with open(os.path.join(SNAPSHOT_DIR, fname), encoding='utf-8') as f:
-            return json.load(f), snap_date.isoformat()
-    except Exception:
-        return {}, None
+    snap_date, path = before[-1] if before else candidates[0]
+    snap = snapshot_io.read_snapshot(path)
+    return (snap, snap_date.isoformat()) if snap else ({}, None)
 
 
 def load_cache():
@@ -250,60 +235,32 @@ _REV_COLS  = [f'{m}_{y}' for m in ('매출액', '영업이익') for y in _REV_YE
 
 
 def save_consensus_snapshot(df):
-    """오늘자 컨센서스 추정치를 날짜별 JSON으로 저장 (1개월 후 비교용)."""
-    if df is None or df.empty:
-        return
-    os.makedirs(SNAPSHOT_DIR, exist_ok=True)
-    today = now_kst().strftime('%Y-%m-%d')
-    path  = os.path.join(SNAPSHOT_DIR, f'{today}.json')
-    snap  = {}
-    for _, row in df.iterrows():
-        code = str(row.get('종목코드', '')).zfill(6)
-        if not code or code == '000000':
-            continue
-        entry = {}
-        for c in _REV_COLS:
-            v = row.get(c, np.nan)
-            if pd.notna(v):
-                entry[c] = float(v)
-        if entry:
-            snap[code] = entry
-    try:
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(snap, f, ensure_ascii=False)
-    except:
-        pass
+    """오늘자 컨센서스·밸류에이션 스냅샷을 날짜별 CSV로 저장 (사후 비교용).
+
+    저장 필드는 snapshot_io.ALL_FIELDS — 컨센 8 + 밸류 5 + 라벨 2.
+    실패해도 조용히 넘어간다(기존 동작 유지)."""
+    snapshot_io.save_snapshot(df, SNAPSHOT_DIR, now_kst().strftime('%Y-%m-%d'))
 
 
 @st.cache_data(ttl=21600, show_spinner=False)
 def load_old_consensus_snapshot(target_days_ago=30):
     """target_days_ago 일 근처의 가장 가까운 스냅샷을 로드 (7~60일 범위)."""
-    if not os.path.exists(SNAPSHOT_DIR):
-        return {}
     today  = now_kst().date()
     target = today - datetime.timedelta(days=target_days_ago)
     best, best_diff = None, None
-    for fn in os.listdir(SNAPSHOT_DIR):
-        if not fn.endswith('.json'):
-            continue
-        try:
-            d = datetime.datetime.strptime(fn[:-5], '%Y-%m-%d').date()
-        except:
-            continue
+    for d, path in snapshot_io.list_snapshots(SNAPSHOT_DIR):
         age = (today - d).days
         if not (7 <= age <= 60):
             continue
         diff = abs((d - target).days)
         if best_diff is None or diff < best_diff:
-            best, best_diff = fn, diff
+            best, best_diff = (d, path), diff
     if not best:
         return {}
-    try:
-        with open(os.path.join(SNAPSHOT_DIR, best), 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        return {'snapshot_date': best[:-5], 'data': data}
-    except:
+    data = snapshot_io.read_snapshot(best[1])
+    if not data:
         return {}
+    return {'snapshot_date': best[0].isoformat(), 'data': data}
 
 
 def calc_consensus_revision(stock_code, current_row):
