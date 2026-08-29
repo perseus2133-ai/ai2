@@ -711,6 +711,40 @@ button[data-baseweb="tab"][aria-selected="true"] > div[data-testid="stMarkdownCo
 
 #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
 
+/* ⚠️ 위에서 header를 숨기면 그 안에 있는 '사이드바 열기(»)' 버튼까지 같이
+   사라져서, 설정창(사이드바)을 한 번 닫으면 다시 열 수 없게 된다.
+   (특히 모바일은 사이드바가 기본 접힘 상태) → 이 버튼만 예외로 되살린다. */
+/* Streamlit 1.53: 사이드바를 닫으면 헤더에 stExpandSidebarButton(»)이
+   생기는데, header가 hidden이라 같이 숨겨져 다시 열 수 없었다.
+   (구버전 호환용 stSidebarCollapsedControl / collapsedControl 도 함께 지정) */
+[data-testid="stExpandSidebarButton"],
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="collapsedControl"] {
+    visibility: visible !important;
+    z-index: 999999 !important;
+    pointer-events: auto !important;
+}
+[data-testid="stExpandSidebarButton"] *,
+[data-testid="stSidebarCollapsedControl"] *,
+[data-testid="collapsedControl"] * { visibility: visible !important; }
+/* 다크 배경에서 눈에 띄도록 버튼 자체를 강조 */
+[data-testid="stExpandSidebarButton"],
+[data-testid="stSidebarCollapsedControl"] button,
+[data-testid="collapsedControl"] button {
+    background: rgba(29,53,87,0.92) !important;
+    border: 1px solid #62efff !important;
+    border-radius: 8px !important;
+    color: #FFFFFF !important;
+    box-shadow: 0 2px 10px rgba(98,239,255,0.30) !important;
+}
+[data-testid="stExpandSidebarButton"] svg,
+[data-testid="stExpandSidebarButton"] span,
+[data-testid="stSidebarCollapsedControl"] svg,
+[data-testid="collapsedControl"] svg { color: #FFFFFF !important; fill: #FFFFFF !important; }
+/* 헤더 자체는 숨기되 클릭은 통과시켜 위 버튼이 눌리도록 */
+header[data-testid="stHeader"] { pointer-events: none; }
+header[data-testid="stHeader"] [data-testid="stExpandSidebarButton"] { pointer-events: auto !important; }
+
 /* ============================================================
    📱 모바일 최적화 (≤768px) — 데스크톱 레이아웃은 그대로 두고
    좁은 화면에서만 재배치한다.
@@ -1636,6 +1670,9 @@ def apply_filters(df, rev_thresh, op_thresh, min_vol, markets, req_min_rev_500=T
     # 영업이익 규모 필터 (단위: 억)
     if op_size_label == "300억 이하":
         df = df[df['영업이익_26이후_최대'].notna() & (df['영업이익_26이후_최대'] <= 300)]
+    elif op_size_label == "500억 이상":
+        df = df[df['영업이익_26이후_최대'].notna() & (df['영업이익_26이후_최대'] >= 500)]
+    # 구 라벨 호환 (저장된 설정/외부 호출이 옛 값을 넘겨도 동작하도록)
     elif op_size_label == "500억~1000억":
         df = df[df['영업이익_26이후_최대'].notna() & (df['영업이익_26이후_최대'] >= 500) & (df['영업이익_26이후_최대'] <= 1000)]
     elif op_size_label == "1000억 이상":
@@ -2933,7 +2970,10 @@ def main():
     if not check_password():
         return
 
-    inject_scroll_top_button()
+    # ⚠️ inject_scroll_top_button()은 여기서 호출하지 않는다.
+    #    components.html(iframe)을 사이드바보다 먼저 렌더하면 사이드바가
+    #    통째로 사라지는 문제가 있어(재현 확인), main() 실행이 끝난 뒤
+    #    엔트리포인트에서 마지막에 주입한다. (파일 하단 참조)
 
     st.markdown("""
     <div class="hero-header">
@@ -2971,8 +3011,8 @@ def main():
         st.markdown("### 💎 영업이익 규모 (2026년 이후)")
         op_size_label = st.radio(
             "영업이익 규모",
-            ["300억 이하", "500억~1000억", "1000억 이상"],
-            index=2,
+            ["300억 이하", "500억 이상", "1000억 이상"],
+            index=1,
             horizontal=True,
             label_visibility="collapsed",
             help="2026·2027·2028년 예상 영업이익 중 최대값(단위: 억) 기준으로 필터링합니다.",
@@ -3830,3 +3870,6 @@ def main():
 
 if __name__ == '__main__':
     main()
+    # 사이드바(설정창)가 모두 렌더된 뒤에 '맨 위로' 버튼 iframe을 주입한다.
+    # main() 앞쪽에서 주입하면 사이드바가 렌더되지 않는 문제가 있었다.
+    inject_scroll_top_button()
