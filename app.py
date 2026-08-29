@@ -3285,8 +3285,10 @@ def main():
             st.warning("⚠️ 조건에 부합하는 종목이 없습니다. 사이드바에서 기준을 완화하거나, '개별종목확인' 탭에서 종목명으로 직접 검색하세요.")
 
         # 탭 (5개)
-        tab_cards, tab_rev, tab_ai, tab_search, tab_sector, tab_table, tab_hist, tab_paper = st.tabs([
+        (tab_cards, tab_rev, tab_ai, tab_search, tab_lead, tab_sector,
+         tab_table, tab_hist, tab_paper) = st.tabs([
             "📋 종목 카드 뷰", "🚀 컨센 상향", "🤖 AI 3선", "🔍 개별종목확인",
+            "🔥 주도업종 저평가",
             "🏢 업종별 테마순위", "📊 데이터 테이블", "📅 누적 기록",
             "💰 모의투자",
         ])
@@ -3625,6 +3627,85 @@ def main():
                         st.info(f"검색 결과가 {len(hits)}개로 많아 상위 {MAX_CARDS}개만 카드로 표시합니다. 더 정확한 검색어를 입력하세요.")
                     for rank, (_, row) in enumerate(show_df.iterrows(), start=1):
                         render_stock_card(row, rank)
+
+        # ════════════════════════════════════════════════════════
+        # 🔥 주도업종 저평가 — 강한 업종 Top10 → 업종 전 종목 괴리율
+        # ════════════════════════════════════════════════════════
+        with tab_lead:
+            st.markdown("<h3 style='color:#FFFFFF;'>🔥 주도업종 → 저평가 종목 발굴</h3>",
+                        unsafe_allow_html=True)
+            try:
+                from sector_leaders import rank_sectors, sector_detail
+                lead = rank_sectors(all_df, snapshot_dir=SNAPSHOT_DIR, top_n=10)
+            except Exception as e:
+                lead = pd.DataFrame()
+                st.error(f"업종 랭킹 계산 실패: {e}")
+
+            if lead.empty:
+                st.info("업종 데이터가 부족합니다. 새벽 자동 크롤 후 다시 확인해주세요.")
+            else:
+                used = lead.attrs.get('components_used', [])
+                mdays = lead.attrs.get('momentum_days', 0)
+                st.markdown(
+                    f"<div style='color:#94A3B8;font-size:0.8rem;margin-bottom:8px;'>"
+                    f"강도 점수 = {' + '.join(used) if used else '-'} "
+                    f"(결측 요소는 제외 후 재정규화)"
+                    + (f" · 모멘텀 {mdays}일 구간" if mdays else "")
+                    + "</div>", unsafe_allow_html=True)
+
+                lead_view = lead[['rank', '업종', 'score', 'tech', 'momentum_pct',
+                                  'activity', 'n_stocks']].copy()
+                lead_view.columns = ['순위', '업종', '강도점수', '기술강세',
+                                     '모멘텀%', '거래활발도', '종목수']
+                st.dataframe(lead_view, use_container_width=True, hide_index=True,
+                             height=390)
+
+                st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+                sel_sector = st.selectbox(
+                    "업종 선택 → 해당 업종 전 종목의 저평가 순위",
+                    options=lead['업종'].tolist(), index=0, key='lead_sector')
+
+                with st.spinner(f"{sel_sector} 업종 종목 분석 중..."):
+                    det = sector_detail(sel_sector, all_df)
+
+                if det.empty:
+                    st.info("해당 업종에서 계산 가능한 종목이 없습니다.")
+                else:
+                    det = det.copy()
+                    det['링크'] = det['종목코드'].apply(
+                        lambda c: f"https://finance.naver.com/item/main.naver?code={c}")
+                    view = det[['종목명', '링크', '시장', '현재가', '시가총액',
+                                '적정시총_보정', '괴리율_보정', '괴리율', '기준연도',
+                                '피어멀티플', '성장프리미엄', '영업이익성장', '매출성장',
+                                'n_peers', '경고']].copy()
+                    view.columns = ['종목명', '링크', '시장', '현재가', '현재시총(억)',
+                                    '적정시총(억)', '괴리율%', '단순괴리율%', '기준',
+                                    '피어멀티플', '성장배수', '영업이익성장%', '매출성장%',
+                                    '피어수', '주의']
+                    st.dataframe(
+                        view, use_container_width=True, hide_index=True, height=560,
+                        column_config={
+                            '링크': st.column_config.LinkColumn('네이버', display_text='📈'),
+                            '현재가': st.column_config.NumberColumn(format="%d"),
+                            '현재시총(억)': st.column_config.NumberColumn(format="%d"),
+                            '적정시총(억)': st.column_config.NumberColumn(format="%d"),
+                            '괴리율%': st.column_config.NumberColumn(format="%.1f"),
+                            '단순괴리율%': st.column_config.NumberColumn(format="%.1f"),
+                            '피어멀티플': st.column_config.NumberColumn(format="%.1f"),
+                            '성장배수': st.column_config.NumberColumn(format="%.2f"),
+                            '영업이익성장%': st.column_config.NumberColumn(format="%.1f"),
+                            '매출성장%': st.column_config.NumberColumn(format="%.1f"),
+                        })
+                    st.markdown(
+                        "<div class='sect-note'>"
+                        "적정시총 = 동일업종 피어 멀티플(EV/영업이익) × 대상 영업이익 − 순차입금. "
+                        "<b>괴리율%</b>는 성장 프리미엄을 반영한 값(성장배수), "
+                        "<b>단순괴리율%</b>는 미반영 값 — 두 값 차이가 성장 효과입니다. "
+                        "기준은 2028E 우선, 없으면 27E→26E→25E로 폴백합니다.<br>"
+                        "⚠️ 조선·정유·반도체 같은 순환주는 이익 피크에서 멀티플이 낮은 것이 "
+                        "정상이라, 괴리율 상위가 곧 저평가를 뜻하지 않을 수 있습니다. "
+                        "'주의' 열의 적자·표본부족 표시도 함께 보세요."
+                        "</div>", unsafe_allow_html=True)
 
         with tab_sector:
             st.markdown("<h3 style='color:#FFFFFF;'>🏢 업종별 수익 테마 순위</h3>", unsafe_allow_html=True)
