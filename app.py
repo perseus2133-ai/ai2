@@ -2228,25 +2228,52 @@ def obv_rsi_verdict(obv_trend, rsi, macd_signal=''):
 # 접근 제어 (비밀번호)
 # ============================================================
 def check_password():
+    _PW = "9084"
+
     def password_entered():
-        if st.session_state["password"] == "9084":
+        """비밀번호 입력 콜백.
+
+        ⚠️ Streamlit은 on_change 콜백을 '스크립트 본문 실행 전에' 호출한다.
+           로그인 성공 시 del 로 password 키를 지우면, 그 다음 실행부터
+           password 위젯은 렌더되지 않으므로 Streamlit이 key→widget 매핑을
+           정리한다. 그런데 콜백 등록 정보는 남아 있어서, 브라우저가 캐시한
+           옛 위젯 값이 다시 전송되는 상황(앱 재배포·슬립 후 재연결 등)에서
+           이 콜백이 '위젯이 없는 실행'에서 호출된다.
+           → st.session_state["password"] 대괄호 접근이 KeyError로 터졌다.
+           (증상: 로그인 후 사이드바 필터를 처음 누르면 KeyError)
+
+        따라서 값이 없으면 판정하지 않고 조용히 무시한다.
+        (여기서 False로 두면 멀쩡한 세션이 '인증 실패'로 튕긴다)
+        """
+        pw = st.session_state.get("password")
+        if pw is None:
+            return
+        if pw == _PW:
             st.session_state["password_correct"] = True
-            del st.session_state["password"]
+            st.session_state.pop("password", None)
         else:
             st.session_state["password_correct"] = False
 
-    if "password_correct" not in st.session_state:
-        st.markdown('<div class="hero-header"><div class="rainbow-title"><svg viewBox="0 0 24 24" width="28" height="28" stroke="currentColor" stroke-width="2" fill="none"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg> SYSTEM LOCKED</div><p>퀀트 스크리닝 터미널 · 인증 필요</p></div>', unsafe_allow_html=True)
+    def _pw_input(show_error=False):
+        """잠금 화면의 비밀번호 입력칸. 재연결로 브라우저에 값이 남아 있으면
+        콜백 없이도 통과시켜, 재입력 없이 세션을 복구한다."""
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            st.text_input("비밀번호 입력", type="password", on_change=password_entered, key="password")
+            val = st.text_input("비밀번호 입력", type="password",
+                                on_change=password_entered, key="password")
+            if show_error:
+                st.error("인증 실패.")
+        if val == _PW and not st.session_state.get("password_correct"):
+            st.session_state["password_correct"] = True
+            st.rerun()
+
+    if "password_correct" not in st.session_state:
+        st.markdown('<div class="hero-header"><div class="rainbow-title"><svg viewBox="0 0 24 24" width="28" height="28" stroke="currentColor" stroke-width="2" fill="none"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg> SYSTEM LOCKED</div><p>퀀트 스크리닝 터미널 · 인증 필요</p></div>', unsafe_allow_html=True)
+        _pw_input()
         return False
     elif not st.session_state["password_correct"]:
         st.markdown('<div class="hero-header"><div class="rainbow-title"><svg viewBox="0 0 24 24" width="28" height="28" stroke="currentColor" stroke-width="2" fill="none"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg> SYSTEM LOCKED</div><p>퀀트 스크리닝 터미널 · 인증 필요</p></div>', unsafe_allow_html=True)
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            st.text_input("비밀번호 입력", type="password", on_change=password_entered, key="password")
-            st.error("인증 실패.")
+        _pw_input(show_error=True)
         return False
     return True
 
