@@ -140,7 +140,7 @@ def save_history(df, min_vol=1000000):
             if pd.notna(ov) and pd.notna(rv) and ov < 0 and abs(ov) > rv: return False
         return True
 
-    vol_df = vol_df[vol_df.apply(strict_financial_check, axis=1)].copy()
+    vol_df = vol_df[vol_df.apply(strict_financial_check, axis=1).astype(bool)].copy()
     if vol_df.empty:
         return
 
@@ -1652,7 +1652,7 @@ def apply_filters(df, rev_thresh, op_thresh, min_vol, markets, req_min_rev_500=T
 
     # 우선주 제외 (디폴트 ON). 보통주만 평가 → 영업이익/시총 정렬 노이즈 제거
     if exclude_preferred and '종목명' in df.columns:
-        df = df[~df['종목명'].apply(_is_preferred_stock)]
+        df = df[~df['종목명'].apply(_is_preferred_stock).astype(bool)]
 
     # 부채비율 필터 (옵션). 데이터 없는 종목은 통과시킴 (오발 방지)
     if use_debt_filter and '부채비율' in df.columns:
@@ -1691,13 +1691,13 @@ def apply_filters(df, rev_thresh, op_thresh, min_vol, markets, req_min_rev_500=T
             if drop_huge_loss and pd.notna(ov) and pd.notna(rv) and ov < 0 and abs(ov) > rv: return False
         return True
 
-    df = df[df.apply(strict_financial_check, axis=1)].copy()
+    df = df[df.apply(strict_financial_check, axis=1).astype(bool)].copy()
     def meets(row):
         rv = [row.get(f'매출액_성장률_{y}', np.nan) for y in [2025,2026,2027,2028]]
         ov = [row.get(f'영업이익_성장률_{y}', np.nan) for y in [2025,2026,2027,2028]]
         rv = [x for x in rv if pd.notna(x)]; ov = [x for x in ov if pd.notna(x)]
         return (any(x >= rev_thresh for x in rv)) or (any(x >= op_thresh for x in ov))
-    df = df[df.apply(meets, axis=1)].copy()
+    df = df[df.apply(meets, axis=1).astype(bool)].copy()
     df = compute_card_fields(df)
     if '가시성기준_정렬점수' not in df.columns:      # 방어 (옛 캐시/빈 결과)
         return df.reset_index(drop=True)

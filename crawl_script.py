@@ -909,7 +909,7 @@ def save_history(df, min_vol=1000000):
             if pd.notna(ov) and pd.notna(rv) and ov < 0 and abs(ov) > rv: return False
         return True
 
-    vol_df = vol_df[vol_df.apply(strict_financial_check, axis=1)].copy()
+    vol_df = vol_df[vol_df.apply(strict_financial_check, axis=1).astype(bool)].copy()
     if vol_df.empty:
         return
 
