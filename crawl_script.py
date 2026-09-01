@@ -663,7 +663,8 @@ def scrape_foreign_inst(stock_code):
 
 def fetch_supplement_indicators(stock_code):
     """20일 평균 거래량 + OBV + RSI + 지지/저항선 + MA/MACD + 외인/기관 수급."""
-    out = {'평균거래량_20d': np.nan, 'OBV_trend': '', 'RSI': np.nan,
+    out = {'평균거래량_20d': np.nan, '최근거래일_거래량': np.nan,
+           'OBV_trend': '', 'RSI': np.nan,
            '저항선': np.nan, '지지선': np.nan,
            'MA_align': '', 'MACD_signal': '',
            '외인_5d': np.nan, '외인_20d': np.nan,
@@ -674,6 +675,12 @@ def fetch_supplement_indicators(stock_code):
             recent_vols = volumes[:20]
             if len(recent_vols) >= 3:
                 out['평균거래량_20d'] = round(sum(recent_vols) / len(recent_vols))
+            # 장 시작 직후 크롤되면 시가총액 페이지의 거래량이 0으로 잡힌다.
+            # 일별시세의 최근 '양수' 거래량을 폴백용으로 확보해 둔다.
+            for _v in volumes:
+                if _v and _v > 0:
+                    out['최근거래일_거래량'] = int(_v)
+                    break
         ind = calc_obv_rsi(prices, volumes)
         if ind:
             out['OBV_trend'] = ind.get('OBV_trend', '')
@@ -817,7 +824,7 @@ def scrape_naver_consensus(stock_code, stock_name):
         # 보조지표·수급 통합 수집
         try:
             sup = fetch_supplement_indicators(stock_code)
-            for k in ['평균거래량_20d', 'OBV_trend', 'RSI', '저항선', '지지선',
+            for k in ['평균거래량_20d', '최근거래일_거래량', 'OBV_trend', 'RSI', '저항선', '지지선',
                       'MA_align', 'MACD_signal',
                       '외인_5d', '외인_20d', '기관_5d', '기관_20d']:
                 result[k] = sup.get(k, '' if k in ('OBV_trend','MA_align','MACD_signal') else np.nan)
@@ -1026,10 +1033,17 @@ def main():
             c['시장'] = rd['시장']
             c['현재가'] = rd['현재가']
             c['시가총액'] = rd['시가총액']
-            c['Recent_Volume'] = rd['Recent_Volume']
+            # 거래량: 시가총액 페이지 값이 0이면(장 시작 직후 크롤 등)
+            # 일별시세의 최근 거래일 거래량으로 대체한다.
+            _rv = rd.get('Recent_Volume') or 0
+            if not _rv or _rv <= 0:
+                _fb = c.get('최근거래일_거래량', np.nan)
+                if pd.notna(_fb) and _fb > 0:
+                    _rv = int(_fb)
+            c['Recent_Volume'] = _rv
             # 거래량 폭증 배수 계산
             avg_vol = c.get('평균거래량_20d', np.nan)
-            today_vol = rd['Recent_Volume']
+            today_vol = _rv
             if pd.notna(avg_vol) and avg_vol > 0 and today_vol > 0:
                 c['거래량배수'] = round(today_vol / avg_vol, 1)
             else:
