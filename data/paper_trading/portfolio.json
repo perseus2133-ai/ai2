@@ -23,7 +23,7 @@
       "종목명": "자이에스앤디",
       "shares": 1906,
       "avg_price": 5940.0,
-      "peak_price": 11300.0,
+      "peak_price": 11570.0,
       "bought": "2026-07-29",
       "tp50_done": true,
       "tp100_done": false
@@ -32,7 +32,7 @@
       "종목명": "티엘비",
       "shares": 530,
       "avg_price": 38700.0,
-      "peak_price": 40250.0,
+      "peak_price": 42000.0,
       "bought": "2026-08-26",
       "tp50_done": false,
       "tp100_done": false
@@ -41,7 +41,7 @@
       "종목명": "대덕전자",
       "shares": 185,
       "avg_price": 110800.0,
-      "peak_price": 110800.0,
+      "peak_price": 112700.0,
       "bought": "2026-08-26",
       "tp50_done": false,
       "tp100_done": false
