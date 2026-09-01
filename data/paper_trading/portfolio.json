@@ -1,11 +1,11 @@
 {
-  "cash": 12396080.0,
+  "cash": 11398260.0,
   "holdings": {
     "096770": {
       "종목명": "SK이노베이션",
       "shares": 173,
       "avg_price": 103800.0,
-      "peak_price": 132200.0,
+      "peak_price": 135300.0,
       "bought": "2026-07-08",
       "tp50_done": false,
       "tp100_done": false
@@ -17,15 +17,6 @@
       "peak_price": 153600.0,
       "bought": "2026-07-08",
       "tp50_done": false,
-      "tp100_done": false
-    },
-    "317400": {
-      "종목명": "자이에스앤디",
-      "shares": 1906,
-      "avg_price": 5940.0,
-      "peak_price": 11570.0,
-      "bought": "2026-07-29",
-      "tp50_done": true,
       "tp100_done": false
     },
     "356860": {
@@ -45,8 +36,17 @@
       "bought": "2026-08-26",
       "tp50_done": false,
       "tp100_done": false
+    },
+    "003160": {
+      "종목명": "디아이",
+      "shares": 812,
+      "avg_price": 26650.0,
+      "peak_price": 26650.0,
+      "bought": "2026-09-02",
+      "tp50_done": false,
+      "tp100_done": false
     }
   },
   "started": "2026-07-08",
-  "last_rebalance": "2026-08-26"
+  "last_rebalance": "2026-09-02"
 }
