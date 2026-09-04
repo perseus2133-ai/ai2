@@ -1645,10 +1645,22 @@ def _is_preferred_stock(name):
     return False
 
 
-def apply_filters(df, rev_thresh, op_thresh, min_vol, markets, req_min_rev_500=True, req_op_profit=True, drop_huge_loss=True, op_size_label="1000억 이상", use_debt_filter=False, debt_thresh=200, exclude_preferred=True):
+def apply_filters(df, rev_thresh, op_thresh, min_vol, markets, req_min_rev_500=True, req_op_profit=True, drop_huge_loss=True, op_size_label="1000억 이상", use_debt_filter=False, debt_thresh=200, exclude_preferred=True, min_amt=0):
     if df.empty: return df
     if markets: df = df[df['시장'].isin(markets)]
     if min_vol > 0: df = df[df['Recent_Volume'] >= min_vol]
+
+    # 거래대금 필터 (억원). 기준은 '20일 평균 거래대금' = 평균거래량_20d × 현재가.
+    # 당일 거래량을 쓰면 크롤 시각(장전/장중)에 따라 값이 크게 달라지고 하루치
+    # 노이즈도 커서, 평소 유동성을 보는 20일 평균을 기준으로 삼는다.
+    # 평균거래량_20d 가 없는 종목은 당일 거래량으로 폴백(오발 방지).
+    if min_amt > 0:
+        _price = pd.to_numeric(df.get('현재가'), errors='coerce')
+        _av20 = pd.to_numeric(df.get('평균거래량_20d'), errors='coerce')
+        _vol = pd.to_numeric(df.get('Recent_Volume'), errors='coerce')
+        _base = _av20.fillna(_vol)
+        _amt = _base * _price / 1e8                 # 억원
+        df = df[(_amt >= min_amt).fillna(False)]
 
     # 우선주 제외 (디폴트 ON). 보통주만 평가 → 영업이익/시총 정렬 노이즈 제거
     if exclude_preferred and '종목명' in df.columns:
@@ -3045,11 +3057,25 @@ def main():
             help="2026·2027·2028년 예상 영업이익 중 최대값(단위: 억) 기준으로 필터링합니다.",
         )
 
-        st.markdown("### 📊 거래량 필터")
-        vol_opts = {"제한 없음": 0, "1만 이상": 10000, "5만 이상": 50000, "10만 이상": 100000,
-                    "50만 이상": 500000, "100만 이상": 1000000}
-        vol_sel = st.selectbox("최소 거래량", list(vol_opts.keys()), index=5)
-        min_vol = vol_opts[vol_sel]
+        st.markdown("### 📊 유동성 필터")
+        liq_mode = st.radio(
+            "기준", ["거래대금", "거래량"], index=0, horizontal=True,
+            help=("거래대금(권장): 20일 평균 거래대금 = 평균거래량 × 현재가. "
+                  "'얼마어치' 거래되는지를 보므로 주가 수준과 무관하게 종목 간 "
+                  "비교가 되고, 크롤 시각(장중/장전)에도 흔들리지 않는다. "
+                  "거래량: 하루 손바뀐 '주식 수'. 저가주가 유리하고 고가주가 "
+                  "불리해 유동성 판단이 왜곡될 수 있다."))
+        if liq_mode == "거래대금":
+            amt_opts = {"제한 없음": 0, "10억 이상": 10, "30억 이상": 30,
+                        "50억 이상": 50, "100억 이상": 100}
+            amt_sel = st.selectbox("최소 거래대금 (20일 평균)",
+                                   list(amt_opts.keys()), index=1)
+            min_amt, min_vol = amt_opts[amt_sel], 0
+        else:
+            vol_opts = {"제한 없음": 0, "1만 이상": 10000, "5만 이상": 50000,
+                        "10만 이상": 100000, "50만 이상": 500000, "100만 이상": 1000000}
+            vol_sel = st.selectbox("최소 거래량 (주)", list(vol_opts.keys()), index=5)
+            min_vol, min_amt = vol_opts[vol_sel], 0
 
         st.markdown("### 🛡️ 엄격한 재무 필터")
         exclude_preferred = st.checkbox("우선주 제외 (보통주만)", value=True, help="삼성전자우·현대차2우B 같은 우선주를 결과에서 제외합니다. 같은 회사가 보통주/우선주로 중복 노출되는 노이즈 제거.")
@@ -3277,7 +3303,7 @@ def main():
             all_df['업종_Revision_중앙값'] = np.nan
             all_df['업종_Revision_표본수'] = 0
 
-        df = apply_filters(all_df.copy(), rev_thresh, op_thresh, min_vol, markets, req_min_rev_500, req_op_profit, drop_huge_loss, op_size_label, use_debt_filter=use_debt_filter, debt_thresh=debt_thresh, exclude_preferred=exclude_preferred)
+        df = apply_filters(all_df.copy(), rev_thresh, op_thresh, min_vol, markets, req_min_rev_500, req_op_profit, drop_huge_loss, op_size_label, use_debt_filter=use_debt_filter, debt_thresh=debt_thresh, exclude_preferred=exclude_preferred, min_amt=min_amt)
 
         # 업종평균 PER 매핑 (df 업종은 all_df에서 이미 채워진 상태로 전파됨)
         sector_per_map = get_sector_per_map()
