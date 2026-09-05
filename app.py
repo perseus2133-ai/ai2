@@ -3741,15 +3741,21 @@ def main():
             st.markdown("<h3 style='color:#FFFFFF;'>🎯 종합판정별 종목 분류</h3>",
                         unsafe_allow_html=True)
 
+            # 기본은 '필터 통과' — 전체 2600여 종목을 그대로 늘어놓으면
+            # 판정별로도 수백 개라 눈으로 훑을 수가 없다.
+            n_flt = 0 if df is None else len(df)
+            n_all = 0 if all_df is None else len(all_df)
             vc1, vc2 = st.columns([1, 1])
             with vc1:
-                scope = st.radio("대상", ["전체 종목", "필터 통과 종목"],
+                scope = st.radio("대상",
+                                 [f"필터 통과 ({n_flt})", f"전체 ({n_all})"],
                                  horizontal=True, key='vd_scope')
-            base = all_df if scope == "전체 종목" else df
+            base = df if scope.startswith("필터") else all_df
             vdf = attach_verdicts(base)
 
             if vdf is None or vdf.empty:
-                st.info("표시할 종목이 없습니다.")
+                st.info("사이드바 필터를 통과한 종목이 없습니다. "
+                        "조건을 완화하거나 위에서 '전체'로 바꿔보세요.")
             else:
                 flow_n = int(vdf['외인_5d'].notna().sum()) if '외인_5d' in vdf.columns else 0
                 if flow_n == 0:
