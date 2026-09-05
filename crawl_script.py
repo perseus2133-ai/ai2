@@ -622,7 +622,19 @@ def calc_macd_signal(prices, fast=12, slow=26, sig=9):
 
 
 def scrape_foreign_inst(stock_code):
-    """네이버 외인·기관 일별 순매매 (단위: 주). 5일/20일 누적."""
+    """네이버 외인·기관 일별 순매매 (단위: 주). 5일/20일 누적.
+
+    ⚠️ 2026-09 수집 실패(2619종목 전부 NaN) 원인 — 버그 2개가 겹쳐 있었다.
+       1) frgn 페이지에는 class='type2' 테이블이 2개다.
+            [0] 거래원 매도/매수 상위 (4열)   ← find()가 잡던 것
+            [1] 일별 기관·외국인 순매매 (9열) ← 실제로 필요한 것
+          첫 테이블엔 9열 행이 없어 전부 continue → 항상 빈 결과였다.
+       2) 열 순서도 반대였다. 실제 배치는
+            0날짜 1종가 2전일비 3등락률 4거래량 5기관 6외국인 7보유주수 8보유율
+          인데 [5]=외인, [8]=기관으로 읽고 있었다([8]은 보유율 '46.71%').
+       → 헤더 텍스트로 테이블을 고르고, 보유율 열에 '%'가 있는지 확인해
+         페이지 구조가 또 바뀌면 조용히 오염되는 대신 건너뛰게 했다.
+    """
     out = {'외인_5d': np.nan, '외인_20d': np.nan,
            '기관_5d': np.nan, '기관_20d': np.nan}
     foreign_buys, inst_buys = [], []
@@ -633,8 +645,13 @@ def scrape_foreign_inst(stock_code):
             resp = session.get(url, timeout=6)
             resp.encoding = 'euc-kr'
             soup = BeautifulSoup(resp.text, 'lxml')
-            table = soup.find('table', class_='type2')
-            if not table: break
+            table = None
+            for t in soup.find_all('table', class_='type2'):
+                head = t.get_text(' ', strip=True)[:120]
+                if '외국인' in head and '기관' in head:
+                    table = t
+                    break
+            if table is None: break
             page_added = 0
             for row in table.find_all('tr'):
                 cells = row.find_all('td')
@@ -642,11 +659,13 @@ def scrape_foreign_inst(stock_code):
                 date_text = cells[0].get_text(strip=True)
                 if not re.match(r'\d{4}\.\d{2}\.\d{2}', date_text):
                     continue
+                if '%' not in cells[8].get_text():   # 구조 변경 감지
+                    continue
                 try:
-                    f_text = cells[5].get_text(strip=True).replace(',', '').replace('+', '')
-                    i_text = cells[8].get_text(strip=True).replace(',', '').replace('+', '')
-                    f_val = int(f_text) if f_text not in ('', '-') else 0
+                    i_text = cells[5].get_text(strip=True).replace(',', '').replace('+', '')
+                    f_text = cells[6].get_text(strip=True).replace(',', '').replace('+', '')
                     i_val = int(i_text) if i_text not in ('', '-') else 0
+                    f_val = int(f_text) if f_text not in ('', '-') else 0
                 except (ValueError, IndexError):
                     continue
                 foreign_buys.append(f_val); inst_buys.append(i_val); page_added += 1

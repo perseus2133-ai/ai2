@@ -2236,6 +2236,58 @@ def obv_rsi_verdict(obv_trend, rsi, macd_signal=''):
     return {'verdict': '중립', 'color': '#62EFFF', 'icon': '·',
             'reason': '특별한 시그널 없음'}
 
+
+# ============================================================
+# 종합판정 분류 (🎯 판정별 분류 탭 전용)
+# ============================================================
+# obv_rsi_verdict()가 내는 판정을 성격별로 묶는다. 순서 = 화면 노출 순서.
+VERDICT_BY_SIDE = {
+    '강세': ['바닥 매수', '추세 확정', '매수 진입', '강세 다이버전스', '저평가 매수',
+             '저점 경계', '상승 추세', '강세 우위', '매집 진행'],
+    '약세': ['고점 매도', '추세 붕괴', '매도 진입', '약세 다이버전스', '고점 신호',
+             '하락 추세', '약세 우위', '분산 진행', '약세 관망'],
+    '경계·중립': ['과열 주의', '과열 경계', '중립', '데이터 없음'],
+}
+VERDICT_SIDE = {v: side for side, vs in VERDICT_BY_SIDE.items() for v in vs}
+VERDICT_ALL = [v for vs in VERDICT_BY_SIDE.values() for v in vs]
+
+# 원시 코드 → 한글 라벨 (표에서 그대로 읽히도록)
+OBV_LABEL  = {'up': '매집', 'down': '분산'}
+MACD_LABEL = {'bull_cross': '골든크로스', 'bull': '강세',
+              'bear_cross': '데드크로스', 'bear': '약세'}
+MA_LABEL   = {'up': '정배열', 'down': '역배열'}
+
+
+def attach_verdicts(df):
+    """전 종목에 종합판정과 수급 파생값을 붙인다.
+
+    수급은 CSV에 '주(shares)' 단위로만 있어 종목 간 비교가 주가에 왜곡된다.
+    → 현재가를 곱해 '억원'으로 환산한 값을 정렬·비교에 쓴다.
+    """
+    if df is None or df.empty:
+        return df
+    out = df.copy()
+
+    verdicts = [
+        obv_rsi_verdict(r.get('OBV_trend', ''), r.get('RSI'), r.get('MACD_signal', ''))
+        for _, r in out.iterrows()
+    ]
+    out['판정']     = [v['verdict'] for v in verdicts]
+    out['판정아이콘'] = [v['icon'] for v in verdicts]
+    out['판정근거']   = [v['reason'] for v in verdicts]
+    out['성격']      = out['판정'].map(VERDICT_SIDE).fillna('경계·중립')
+
+    px = pd.to_numeric(out.get('현재가'), errors='coerce')
+    for tag in ('5d', '20d'):
+        f = pd.to_numeric(out.get(f'외인_{tag}'), errors='coerce')
+        i = pd.to_numeric(out.get(f'기관_{tag}'), errors='coerce')
+        out[f'외인금액_{tag}'] = f * px / 1e8      # 주 × 원 → 억원
+        out[f'기관금액_{tag}'] = i * px / 1e8
+        both = out[f'외인금액_{tag}'].fillna(0) + out[f'기관금액_{tag}'].fillna(0)
+        out[f'수급합_{tag}'] = both.where(~(f.isna() & i.isna()))
+    return out
+
+
 # ============================================================
 # 접근 제어 (비밀번호)
 # ============================================================
@@ -3338,9 +3390,10 @@ def main():
             st.warning("⚠️ 조건에 부합하는 종목이 없습니다. 사이드바에서 기준을 완화하거나, '개별종목확인' 탭에서 종목명으로 직접 검색하세요.")
 
         # 탭 (5개)
-        (tab_cards, tab_rev, tab_ai, tab_search, tab_lead, tab_sector,
-         tab_table, tab_hist, tab_paper) = st.tabs([
-            "📋 종목 카드 뷰", "🚀 컨센 상향", "🤖 AI 3선", "🔍 개별종목확인",
+        (tab_cards, tab_rev, tab_ai, tab_verdict, tab_search, tab_lead,
+         tab_sector, tab_table, tab_hist, tab_paper) = st.tabs([
+            "📋 종목 카드 뷰", "🚀 컨센 상향", "🤖 AI 3선",
+            "🎯 판정별 분류", "🔍 개별종목확인",
             "🔥 주도업종 저평가",
             "🏢 업종별 테마순위", "📊 데이터 테이블", "📅 누적 기록",
             "💰 모의투자",
@@ -3680,6 +3733,122 @@ def main():
                         st.info(f"검색 결과가 {len(hits)}개로 많아 상위 {MAX_CARDS}개만 카드로 표시합니다. 더 정확한 검색어를 입력하세요.")
                     for rank, (_, row) in enumerate(show_df.iterrows(), start=1):
                         render_stock_card(row, rank)
+
+        # ════════════════════════════════════════════════════════
+        # 🎯 판정별 분류 — 종합판정으로 나눠 보고, 수급으로 줄세운다
+        # ════════════════════════════════════════════════════════
+        with tab_verdict:
+            st.markdown("<h3 style='color:#FFFFFF;'>🎯 종합판정별 종목 분류</h3>",
+                        unsafe_allow_html=True)
+
+            vc1, vc2 = st.columns([1, 1])
+            with vc1:
+                scope = st.radio("대상", ["전체 종목", "필터 통과 종목"],
+                                 horizontal=True, key='vd_scope')
+            base = all_df if scope == "전체 종목" else df
+            vdf = attach_verdicts(base)
+
+            if vdf is None or vdf.empty:
+                st.info("표시할 종목이 없습니다.")
+            else:
+                flow_n = int(vdf['외인_5d'].notna().sum()) if '외인_5d' in vdf.columns else 0
+                if flow_n == 0:
+                    st.warning("외인·기관 수급이 아직 수집되지 않았습니다 "
+                               "(다음 새벽 크롤 후 채워집니다). 지금은 판정·기술지표 기준으로만 정렬됩니다.")
+
+                with vc2:
+                    side = st.radio("성격", ["전체", "강세", "약세", "경계·중립"],
+                                    horizontal=True, key='vd_side')
+                pool = vdf if side == "전체" else vdf[vdf['성격'] == side]
+
+                counts = pool['판정'].value_counts()
+                icons = dict(zip(vdf['판정'], vdf['판정아이콘']))
+                present = [v for v in VERDICT_ALL if counts.get(v, 0) > 0]
+                labels = [f"— 전체 ({len(pool)}) —"] + [
+                    f"{icons.get(v, '·')} {v} ({int(counts[v])})" for v in present]
+                pick = st.selectbox("판정 선택 (클릭하면 해당 판정 종목만 나옵니다)",
+                                    labels, index=0, key='vd_pick')
+                sel = pool if pick.startswith("— 전체") else                       pool[pool['판정'] == present[labels.index(pick) - 1]]
+
+                sort_opts = {
+                    "🔥 외인+기관 5일 순매수(억)": ('수급합_5d', False),
+                    "🌍 외인 5일 순매수(억)":     ('외인금액_5d', False),
+                    "🏦 기관 5일 순매수(억)":     ('기관금액_5d', False),
+                    "📅 외인+기관 20일 순매수(억)": ('수급합_20d', False),
+                    "⭐ 종합성장점수":            ('종합성장점수', False),
+                    "📉 RSI 낮은순 (과매도)":     ('RSI', True),
+                    "💰 시가총액":               ('시가총액', False),
+                }
+                # '종합성장점수'처럼 필터 통과분에만 있는 컬럼은 자동 제외
+                sort_opts = {k: c for k, c in sort_opts.items() if c[0] in vdf.columns}
+                names = list(sort_opts.keys())
+                want = "🔥 외인+기관 5일 순매수(억)" if flow_n else "⭐ 종합성장점수"
+                default_i = names.index(want) if want in names else 0
+                sc1, sc2 = st.columns([2, 1])
+                with sc1:
+                    sort_label = st.selectbox("정렬 기준", names,
+                                              index=default_i, key='vd_sort')
+                with sc2:
+                    both_only = st.checkbox("외인·기관 동시 매수(쌍끌이)만",
+                                            value=False, key='vd_both')
+
+                if both_only:
+                    sel = sel[(pd.to_numeric(sel['외인_5d'], errors='coerce') > 0) &
+                              (pd.to_numeric(sel['기관_5d'], errors='coerce') > 0)]
+
+                col, asc = sort_opts[sort_label]
+                if col in sel.columns:
+                    sel = sel.sort_values(col, ascending=asc, na_position='last')
+
+                st.markdown(f"<div style='color:#94A3B8;font-size:0.82rem;margin:6px 0;'>"
+                            f"{len(sel)}개 종목 · 수급은 <b>순매수 주식수 × 현재가</b>로 환산한 "
+                            f"억원 단위입니다(주가 차이로 인한 왜곡 제거)</div>",
+                            unsafe_allow_html=True)
+
+                if sel.empty:
+                    st.info("조건에 맞는 종목이 없습니다.")
+                else:
+                    v = sel.head(300).copy()
+                    v['링크'] = v['종목코드'].apply(
+                        lambda c: f"https://finance.naver.com/item/main.naver?code={c}")
+                    for src, dst, lab in (('OBV_trend', 'OBV', OBV_LABEL),
+                                          ('MACD_signal', 'MACD', MACD_LABEL),
+                                          ('MA_align', '이평', MA_LABEL)):
+                        if src in v.columns:
+                            v[dst] = v[src].map(lab).fillna('-')
+                    v['판정표시'] = v['판정아이콘'] + ' ' + v['판정']
+                    want_cols = [('판정표시', '판정'), ('종목명', '종목명'), ('링크', '링크'),
+                                 ('시장', '시장'), ('업종', '업종'), ('현재가', '현재가'),
+                                 ('외인금액_5d', '외인5일(억)'), ('기관금액_5d', '기관5일(억)'),
+                                 ('수급합_5d', '합계5일(억)'), ('수급합_20d', '합계20일(억)'),
+                                 ('RSI', 'RSI'), ('OBV', 'OBV'), ('MACD', 'MACD'),
+                                 ('이평', '이평'), ('시가총액', '시총(억)'),
+                                 ('종합성장점수', '성장점수')]
+                    pairs = [(c, lbl) for c, lbl in want_cols if c in v.columns]
+                    show = v[[c for c, _ in pairs]].copy()
+                    show.columns = [lbl for _, lbl in pairs]
+                    st.dataframe(
+                        show, use_container_width=True, hide_index=True, height=620,
+                        column_config={
+                            '링크': st.column_config.LinkColumn('네이버', display_text='📈'),
+                            '현재가': st.column_config.NumberColumn(format="%d"),
+                            '외인5일(억)': st.column_config.NumberColumn(format="%.1f"),
+                            '기관5일(억)': st.column_config.NumberColumn(format="%.1f"),
+                            '합계5일(억)': st.column_config.NumberColumn(format="%.1f"),
+                            '합계20일(억)': st.column_config.NumberColumn(format="%.1f"),
+                            'RSI': st.column_config.NumberColumn(format="%.1f"),
+                            '시총(억)': st.column_config.NumberColumn(format="%d"),
+                            '성장점수': st.column_config.NumberColumn(format="%d"),
+                        })
+                    if len(sel) > 300:
+                        st.caption(f"상위 300개만 표시 (전체 {len(sel)}개)")
+                    st.markdown(
+                        "<div class='sect-note'>"
+                        "판정은 <b>OBV·RSI·MACD 3종 매트릭스</b>로 매겨집니다 — 카드의 종합판정과 동일합니다. "
+                        "수급 <b>+</b>는 순매수(매집), <b>−</b>는 순매도(분산)입니다.<br>"
+                        "⚠️ 수급은 5·20일 누적일 뿐 매수 주체의 의도를 알려주지 않습니다. "
+                        "지수 편입·차익거래·ETF 리밸런싱으로 인한 기계적 매수가 섞입니다."
+                        "</div>", unsafe_allow_html=True)
 
         # ════════════════════════════════════════════════════════
         # 🔥 주도업종 저평가 — 강한 업종 Top10 → 업종 전 종목 괴리율
