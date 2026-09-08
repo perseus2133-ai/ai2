@@ -1804,6 +1804,8 @@ def compute_card_fields(df):
         for c, dtype in (('영업이익_26이후_최대', float), ('종합성장점수', float),
                          ('미래가시성_순위', float), ('미래가시성_성장률', float),
                          ('가시성기준_정렬점수', float), ('Forward_PER', float),
+                         ('매출_CAGR', float), ('영업이익_CAGR', float),
+                         ('매출영익_합산성장', float),
                          ('PEG', float)):
             if c not in df.columns:
                 df[c] = pd.Series(dtype=dtype)
@@ -1850,6 +1852,27 @@ def compute_card_fields(df):
         priority_ranks.append(pr)
         metric_pcts.append(mt)
         priority_scores.append((5 - pr) * 100_000_000 + mt)
+
+    # ── 매출·영업이익 성장 합산 (CAGR, 기저효과 보정) ─────────
+    # 종합성장점수는 '1년 최대 성장률' 기반이라 한 해 실적이 바닥이면
+    # 성장률이 폭발한다(OCI: 2025 영업이익 4억 → 41,100%). 회복을 성장으로
+    # 오인하지 않도록, 기준연도를 max(2024, 2025)로 잡고 CAGR을 쓴다.
+    def _cagr(row, metric):
+        base = [row.get(f'{metric}_{y}') for y in (2024, 2025)]
+        base = [v for v in base if pd.notna(v) and v > 0]
+        if not base:
+            return np.nan
+        b = max(base)
+        for end, yrs in ((2028, 3), (2027, 2), (2026, 1)):
+            v = row.get(f'{metric}_{end}')
+            if pd.notna(v) and v > 0:
+                return float(np.clip(((v / b) ** (1 / yrs) - 1) * 100, 0, 100))
+        return np.nan
+
+    df['매출_CAGR']   = df.apply(lambda r: _cagr(r, '매출액'), axis=1)
+    df['영업이익_CAGR'] = df.apply(lambda r: _cagr(r, '영업이익'), axis=1)
+    df['매출영익_합산성장'] = (df['매출_CAGR'].fillna(0)
+                              + df['영업이익_CAGR'].fillna(0)) / 2
 
     df['종합성장점수']        = scores
     df['미래가시성_순위']      = priority_ranks
@@ -3526,12 +3549,16 @@ def main():
                 st.markdown(f'<div style="color:#FFFFFF; font-size:0.9rem; font-family:\'JetBrains Mono\', monospace; margin-bottom:10px;">> 스크리너 결과: {len(df)}개 발굴</div>', unsafe_allow_html=True)
             scol1, scol2 = st.columns([2, 1])
             with scol1:
+                # 기본 정렬 = 매출+영업이익 합산점수.
+                # (직전 기본값이던 '미래 가시성'은 매출 CAGR만 보므로 영업이익
+                #  개선이 큰 종목이 뒤로 밀렸다 — 이수페타시스 27위 사례)
                 sort_options = {
+                    "📊 매출+영업이익 성장 (CAGR 합산)": "매출영익_합산성장",
                     "🌟 미래 가시성 핵심성장 (1~3순위)": "가시성기준_정렬점수",
                     "🚀 컨센서스 상향률 (Revision Score)": "Revision_Score",
                     "🌐 업종 모멘텀 (업종 Revision 중앙값)": "업종_Revision_중앙값",
                     "💎 영업이익 규모 (2026+)": "영업이익_26이후_최대",
-                    "📊 매출+영업이익 합산점수": "종합성장점수",
+                    "📉 매출+영업이익 1년최대 합산 (기저효과 주의)": "종합성장점수",
                     "🎯 2028E 괴리율 (저평가 우선)": "괴리율_2028E",
                     "💰 매출 1년최대성장률 (단기)": "매출액_최대성장률",
                     "📈 영업이익 1년최대성장률 (단기)": "영업이익_최대성장률",
