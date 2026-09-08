@@ -1138,6 +1138,14 @@ def main():
 
     print(f"[{now_kst()}] ✅ 데이터 저장 완료! {len(results)}개 → {CSV_FILE}")
 
+    # 3.9단계: 기업개요 갱신 (신규 상장 종목만 증분 수집 → 평소 부하 없음)
+    print("3.9단계: 기업개요 갱신...")
+    try:
+        from fetch_profiles import update_profiles
+        update_profiles(df['종목코드'].astype(str).str.zfill(6).tolist())
+    except Exception as e:
+        print(f"  [WARN] 기업개요 갱신 실패(무시): {e}")
+
     # 4단계: 누적 기록 저장 (보강된 df 사용)
     print("4단계: 누적 기록 저장...")
     save_history(df)

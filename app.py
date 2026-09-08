@@ -100,6 +100,27 @@ def load_cache():
     except Exception:
         return None
 
+@st.cache_data(ttl=3600)
+def load_profiles():
+    """종목코드 → 기업개요(무엇을 파는 회사인가). data/profiles.json.
+
+    네이버 금융 종목분석의 '기업개요' 문장을 크롤 때 수집해 둔 캐시.
+    파일이 없으면 빈 dict → 카드에서 설명 줄만 생략된다.
+    """
+    try:
+        path = os.path.join(DATA_DIR, 'profiles.json')
+        with open(path, encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def profile_of(code):
+    """해당 종목의 기업개요 한 줄 (없으면 '')."""
+    p = load_profiles().get(str(code).zfill(6)) or {}
+    return str(p.get('summary') or '').strip()
+
+
 def get_cache_info():
     cache = load_cache()
     if cache is None:
@@ -403,6 +424,8 @@ div[data-testid="stVerticalBlock"] > div:has(div.element-container) {
 }
 /* 호버 시 카드 내부 텍스트 라이트 테마 반전 */
 .quant-card-dark:hover .qcd-name { color: #111827; }
+.quant-card-dark:hover .qcd-sector { color: #334155; border-color: #94A3B8; background: rgba(255,255,255,0.35); }
+.quant-card-dark:hover .qcd-profile { color: #3F4A5A; border-left-color: #94A3B8; }
 .quant-card-dark:hover .qcd-code { color: #475569; }
 .quant-card-dark:hover .qcd-stat-label,
 .quant-card-dark:hover .qcd-tech-label,
@@ -475,6 +498,26 @@ div[data-testid="stVerticalBlock"] > div:has(div.element-container) {
 }
 .qcd-name { color: #FFFFFF; font-size: 1.18rem; font-weight: 700; }
 .qcd-code { color: #94A3B8; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; margin-left: 6px; }
+
+/* 업종 · 업종 내 시총 순위 — 헤더의 빈 공간을 채우는 칩 */
+.qcd-sector {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: rgba(17, 24, 39, 0.45);
+    border: 1px solid #4A5568;
+    border-radius: 999px;
+    padding: 2px 10px;
+    color: #CBD5E0; font-size: 0.74rem; font-weight: 600;
+    white-space: nowrap;
+}
+.qcd-sector-sep { color: #64748B; }
+/* 기업개요 — 헤더 아래 한 줄, 구도를 흐트러뜨리지 않게 낮은 대비 */
+.qcd-profile {
+    margin-top: 8px;
+    color: #A9B6C8; font-size: 0.79rem; line-height: 1.45;
+    border-left: 2px solid #4A5568; padding-left: 9px;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+}
 .qcd-stat-label { color: #94A3B8; font-size: 0.72rem; font-weight: 600; }
 .qcd-stat-val { color: #FFFFFF; font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 1.0rem; }
 
@@ -791,6 +834,8 @@ header[data-testid="stHeader"] [data-testid="stExpandSidebarButton"] { pointer-e
     /* 카드 전체 여백/헤더 압축 */
     .quant-card-dark { padding: 13px 12px; border-radius: 12px; margin-bottom: 12px; }
     .qcd-name { font-size: 1.02rem; }
+    .qcd-sector { font-size: 0.68rem; padding: 2px 8px; }
+    .qcd-profile { font-size: 0.74rem; -webkit-line-clamp: 2; }
     .qcd-code { font-size: 0.75rem; }
     .qcd-rank { font-size: 0.72rem; padding: 2px 7px; }
     .qcd-badge-kospi, .qcd-badge-kosdaq { font-size: 0.63rem; padding: 2px 6px; }
@@ -2866,14 +2911,41 @@ def render_stock_card(row, rank):
         # peer_status가 비어있거나 다른 케이스 — 새 캐시 컬럼이 없는 옛 데이터일 수 있음
         peer_html = ''
 
-    # ── 헤더 (rank, badge, name, code) ─────────────────────────
+    # ── 업종 · 업종 내 시총 순위 (시장에서의 위치) ─────────────
+    sector_nm = str(row.get('업종', '') or '').strip()
+    _srank = row.get('업종_시총순위', np.nan)
+    _scnt = row.get('업종_종목수', np.nan)
+    sector_chip = ''
+    if sector_nm:
+        pos = ''
+        if pd.notna(_srank) and pd.notna(_scnt) and _scnt >= 3:
+            r_, n_ = int(_srank), int(_scnt)
+            # 상위권일수록 강조 (대장주 → 초록, 상위권 → 파랑, 그 외 → 회색)
+            tone = ('#34D399' if r_ == 1 else
+                    '#60A5FA' if r_ <= max(3, n_ * 0.1) else '#94A3B8')
+            tag = ' 대장주' if r_ == 1 else ''
+            pos = (f'<span style="color:{tone};font-weight:700;">'
+                   f'시총 {r_}위<span style="color:#64748B;font-weight:400;">'
+                   f'/{n_}</span>{tag}</span>')
+        sector_chip = (
+            f'<span class="qcd-sector">{sector_nm}'
+            + (f'<span class="qcd-sector-sep">·</span>{pos}' if pos else '')
+            + '</span>')
+
+    # ── 기업개요 (무엇을 파는 회사인가) ────────────────────────
+    prof = profile_of(code_str)
+    profile_html = (f'<div class="qcd-profile">{prof}</div>' if prof else '')
+
+    # ── 헤더 (rank, badge, name, code, 업종·순위) ──────────────
     header_html = (
-        f'<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;'
-        f'border-bottom:1px solid #4A5568;padding-bottom:10px;margin-bottom:12px;">'
+        f'<div style="border-bottom:1px solid #4A5568;'
+        f'padding-bottom:10px;margin-bottom:12px;">'
+        f'<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
         f'<span class="qcd-rank">#{rank}</span>'
         f'{badge}'
         f'<span class="qcd-name">{name}</span>'
         f'<span class="qcd-code">{code_str}</span>'
+        f'{sector_chip}'
         f'<div style="flex:1;"></div>'
         f'<a href="{nurl}" target="_blank" class="qcd-naver-link">'
         f'<svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" '
@@ -2881,6 +2953,8 @@ def render_stock_card(row, rank):
         f'<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>'
         f'<polyline points="15 3 21 3 21 9"></polyline>'
         f'<line x1="10" y1="14" x2="21" y2="3"></line></svg>상세보기</a>'
+        f'</div>'
+        f'{profile_html}'
         f'</div>'
     )
 
@@ -3184,6 +3258,21 @@ def main():
             all_df['업종'] = all_df['종목코드'].astype(str).str.zfill(6).map(sector_map).fillna('기타')
         else:
             all_df['업종'] = all_df['업종'].fillna('기타')
+
+        # ── 업종 내 시총 순위 (시장에서의 위치) — 전체 모집단 기준 ──
+        # 카드에 '반도체 3위/45' 처럼 표시해 대장주인지 후발주인지 즉시 파악.
+        # 우선주는 보통주와 같은 회사이므로 순위 모집단에서 제외한다.
+        try:
+            _mc = pd.to_numeric(all_df['시가총액'], errors='coerce')
+            _ord = all_df.assign(_mc=_mc)
+            _ord = _ord[~_ord['종목명'].apply(_is_preferred_stock).astype(bool)]
+            _rank = _ord.groupby('업종')['_mc'].rank(ascending=False, method='min')
+            _n = _ord.groupby('업종')['_mc'].transform('count')
+            all_df['업종_시총순위'] = _rank.reindex(all_df.index)
+            all_df['업종_종목수'] = _n.reindex(all_df.index)
+        except Exception:
+            all_df['업종_시총순위'] = np.nan
+            all_df['업종_종목수'] = np.nan
 
         # ── 업종별 2028E 영업이익 멀티플(시총/2028E OP) - 전체 모집단 기준 ──
         # 규칙(3단 폴백):
