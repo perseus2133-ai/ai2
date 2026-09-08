@@ -100,6 +100,37 @@ def load_cache():
     except Exception:
         return None
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _is_mobile_ua(ua: str) -> bool:
+    """폰만 '모바일'로 본다. 태블릿은 화면이 커서 PC 화면이 더 낫다."""
+    ua = (ua or '').lower()
+    if 'ipad' in ua or 'tablet' in ua:
+        return False
+    if any(k in ua for k in ('iphone', 'ipod', 'windows phone', 'iemobile')):
+        return True
+    return 'android' in ua and 'mobile' in ua
+
+
+def is_mobile() -> bool:
+    try:
+        return _is_mobile_ua(st.context.headers.get('User-Agent', ''))
+    except Exception:
+        return False
+
+
+def naver_item_url(code) -> str:
+    """네이버 증권 종목 페이지.
+
+    PC는 일반(데스크톱) 화면, 폰은 모바일 화면으로 보낸다.
+    폰에서 데스크톱 URL을 열면 리다이렉트가 실패하거나 빈 화면이 뜨는
+    경우가 있어 기기별로 분기한다.
+    """
+    c = str(code).zfill(6)
+    if is_mobile():
+        return f'https://m.stock.naver.com/domestic/stock/{c}/total'
+    return f'https://finance.naver.com/item/main.naver?code={c}'
+
+
 @st.cache_data(ttl=3600)
 def load_profiles():
     """종목코드 → 기업개요(무엇을 파는 회사인가). data/profiles.json.
@@ -2431,7 +2462,7 @@ def render_stock_card(row, rank):
     sector_rev   = row.get('업종_Revision_중앙값', np.nan)
 
     code_str = str(code).zfill(6)
-    nurl = f"https://finance.naver.com/item/main.naver?code={code_str}"
+    nurl = naver_item_url(code_str)
 
     badge_cls = 'qcd-badge-kospi' if market == 'KOSPI' else 'qcd-badge-kosdaq'
     badge = f'<span class="{badge_cls}">{market}</span>'
@@ -2947,7 +2978,7 @@ def render_stock_card(row, rank):
         f'<span class="qcd-code">{code_str}</span>'
         f'{sector_chip}'
         f'<div style="flex:1;"></div>'
-        f'<a href="{nurl}" target="_blank" class="qcd-naver-link">'
+        f'<a href="{nurl}" target="_blank" rel="noopener noreferrer" class="qcd-naver-link">'
         f'<svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" '
         f'fill="none" stroke-linecap="round" stroke-linejoin="round">'
         f'<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>'
@@ -3905,7 +3936,7 @@ def main():
                 else:
                     v = sel.head(300).copy()
                     v['링크'] = v['종목코드'].apply(
-                        lambda c: f"https://finance.naver.com/item/main.naver?code={c}")
+                        naver_item_url)
                     for src, dst, lab in (('OBV_trend', 'OBV', OBV_LABEL),
                                           ('MACD_signal', 'MACD', MACD_LABEL),
                                           ('MA_align', '이평', MA_LABEL)):
@@ -3990,7 +4021,7 @@ def main():
                 else:
                     det = det.copy()
                     det['링크'] = det['종목코드'].apply(
-                        lambda c: f"https://finance.naver.com/item/main.naver?code={c}")
+                        naver_item_url)
                     view = det[['종목명', '링크', '시장', '현재가', '시가총액',
                                 '적정시총_보정', '괴리율_보정', '괴리율', '기준연도',
                                 '피어멀티플', '성장프리미엄', '영업이익성장', '매출성장',
