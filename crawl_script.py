@@ -73,6 +73,9 @@ _FG_lock = threading.Lock()
 _FG_consec_block = [0]
 _FG_tripped = threading.Event()
 
+# 종목코드 → {'순부채','부채비율','ROE'} (FinanceRatio 1회 응답에서 함께 추출)
+_FG_RATIO_CACHE = {}
+
 def _fg_note_block():
     with _FG_lock:
         _FG_consec_block[0] += 1
@@ -114,91 +117,128 @@ def parse_numeric(text):
 
 
 
-def get_naver_sector_map():
-    """네이버 금융 업종별 종목 코드 -> 업종명 매핑 딕셔너리를 반환한다."""
-    sector_map = {}
+# ── 네이버 Pay 증권 JSON API ────────────────────────────────
+# 2026-09-10 네이버가 증권을 전면 개편하면서 구 HTML 페이지가 빈 껍데기가
+# 됐다(table 태그 0개, 데이터는 JS 로딩). 종목 리스트·업종 매핑을 공식
+# JSON API 로 전환한다.
+NAVER_API_HEADERS = {
+    'User-Agent': HEADERS['User-Agent'],
+    'Accept': 'application/json',
+    'Accept-Language': 'ko-KR,ko;q=0.9',
+    'Referer': 'https://m.stock.naver.com/',
+}
+_API_PAGE_SIZE = 100          # 100 초과는 JSON 이 아닌 응답이 온다
+
+
+def _api_get(url, retries=3):
+    for i in range(retries):
+        try:
+            r = get_session().get(url, headers=NAVER_API_HEADERS, timeout=(5, 15))
+            if r.status_code == 200:
+                return r.json()
+        except Exception:
+            pass
+        time.sleep(0.4 * (i + 1))
+    return None
+
+
+def _api_num(v):
+    """'15,171,093' / '-' / None → float(NaN)."""
+    if v is None:
+        return np.nan
+    t = str(v).replace(',', '').strip()
+    if t in ('', '-', 'N/A'):
+        return np.nan
     try:
-        session = get_session()
-        url = "https://finance.naver.com/sise/sise_group.naver?type=upjong"
-        res = session.get(url, timeout=10)
-        res.encoding = "euc-kr"
-        soup = BeautifulSoup(res.text, "lxml")
-        links = soup.select("table.type_1 td a")
-        print(f"  업종 수: {len(links)}개")
+        return float(t)
+    except ValueError:
+        return np.nan
 
-        def fetch_sector(a_tag):
-            s_name = a_tag.text.strip()
-            link = "https://finance.naver.com" + a_tag["href"]
+
+def get_naver_sector_map():
+    """종목코드 → 업종명 (네이버 Pay 증권 JSON API).
+
+    업종 목록(/api/stocks/industry) → 업종별 종목(/api/stocks/industry/{no}).
+    """
+    sector_map = {}
+    g = _api_get("https://m.stock.naver.com/api/stocks/industry"
+                 f"?page=1&pageSize={_API_PAGE_SIZE}")
+    groups = (g or {}).get('groups') or []
+    print(f"  업종 수: {len(groups)}개")
+    if not groups:
+        print("[WARN] 업종 목록을 받지 못했습니다 (API 변경 가능성)")
+        return sector_map
+
+    def fetch_group(grp):
+        no, nm = grp.get('no'), str(grp.get('name') or '').strip()
+        got, page = {}, 1
+        while True:
+            d = _api_get(f"https://m.stock.naver.com/api/stocks/industry/{no}"
+                         f"?page={page}&pageSize={_API_PAGE_SIZE}")
+            stocks = (d or {}).get('stocks') or []
+            if not stocks:
+                break
+            for x in stocks:
+                c = str(x.get('itemCode') or '').strip()
+                if c:
+                    got[c] = nm
+            if len(stocks) < _API_PAGE_SIZE:
+                break
+            page += 1
+        return got
+
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        for f in as_completed([ex.submit(fetch_group, x) for x in groups]):
             try:
-                sub_res = session.get(link, timeout=10)
-                sub_res.encoding = "euc-kr"
-                sub_soup = BeautifulSoup(sub_res.text, "lxml")
-                codes = []
-                for sub_a in sub_soup.select("table.type_5 td.name a"):
-                    href = sub_a.get("href", "")
-                    if "code=" in href:
-                        c = href.split("code=")[-1][:6]
-                        codes.append((c, s_name))
-                return codes
-            except:
-                return []
-
-        with ThreadPoolExecutor(max_workers=10) as ex:
-            futures = [ex.submit(fetch_sector, a) for a in links]
-            for f in as_completed(futures):
-                try:
-                    for c, s in f.result():
-                        sector_map[c] = s
-                except:
-                    pass
-    except Exception as e:
-        print(f"[WARN] 업종 매핑 실패: {e}")
+                sector_map.update(f.result())
+            except Exception:
+                pass
     return sector_map
 
 
 def get_stock_list_naver(market="0"):
-    market_name = "KOSPI" if market == "0" else "KOSDAQ"
-    all_stocks, page, last_page = [], 1, 1
+    """시가총액 순 전종목 리스트 (네이버 Pay 증권 JSON API)."""
+    market_name = "KOSPI" if str(market) == "0" else "KOSDAQ"
+    base = f"https://m.stock.naver.com/api/stocks/marketValue/{market_name}"
+    out, page, total = [], 1, None
     while True:
-        url = f"https://finance.naver.com/sise/sise_market_sum.naver?sosok={market}&page={page}"
-        try:
-            session = get_session()
-            resp = session.get(url, timeout=10)
-            resp.encoding = 'euc-kr'
-            soup = BeautifulSoup(resp.text, 'lxml')
-            if page == 1:
-                pg = soup.find('td', class_='pgRR')
-                if pg and pg.find('a'):
-                    last_page = int(re.search(r'page=(\d+)', pg.find('a')['href']).group(1))
-            table = soup.find('table', class_='type_2')
-            if not table: break
-            found = False
-            for row in table.find_all('tr'):
-                cells = row.find_all('td')
-                if len(cells) < 10: continue
-                nl = cells[1].find('a')
-                if not nl: continue
-                nm = nl.get_text(strip=True)
-                if not nm: continue
-                cm = re.search(r'code=(\d{6})', nl.get('href', ''))
-                if not cm: continue
-                v = cells[9].get_text(strip=True).replace(',', '')
-                m = cells[6].get_text(strip=True).replace(',', '')
-                p = cells[2].get_text(strip=True).replace(',', '')
-                all_stocks.append({
-                    '종목코드': cm.group(1), '종목명': nm, '시장': market_name,
-                    '현재가': int(p) if p.isdigit() else 0,
-                    '시가총액': int(m) if m.isdigit() else 0,
-                    'Recent_Volume': int(v) if v.isdigit() else 0
-                })
-                found = True
-            if not found or page >= last_page: break
-            page += 1
-            time.sleep(0.05)
-        except Exception as e:
-            print(f"[WARN] 종목리스트 {page}페이지 오류: {e}")
+        d = _api_get(f"{base}?page={page}&pageSize={_API_PAGE_SIZE}")
+        if not d:
+            print(f"[WARN] {market_name} {page}페이지 응답 없음")
             break
-    return pd.DataFrame(all_stocks)
+        if total is None:
+            total = int(d.get('totalCount') or 0)
+        stocks = d.get('stocks') or []
+        if not stocks:
+            break
+        for x in stocks:
+            code = str(x.get('itemCode') or '').strip()
+            name = str(x.get('stockName') or '').strip()
+            if not code or not name:
+                continue
+            price = _api_num(x.get('closePriceRaw'))
+            if pd.isna(price):
+                price = _api_num(x.get('closePrice'))
+            # marketValue 는 '억원' 단위 문자열 (기존 CSV 단위와 동일)
+            mcap = _api_num(x.get('marketValue'))
+            if pd.isna(mcap):
+                mv = _api_num(x.get('marketValueRaw'))       # 원 단위
+                mcap = mv / 1e8 if pd.notna(mv) else np.nan
+            vol = _api_num(x.get('accumulatedTradingVolumeRaw'))
+            if pd.isna(vol):
+                vol = _api_num(x.get('accumulatedTradingVolume'))
+            out.append({
+                '종목코드': code, '종목명': name, '시장': market_name,
+                '현재가': int(price) if pd.notna(price) else 0,
+                '시가총액': int(mcap) if pd.notna(mcap) else 0,
+                # 당일 누적거래량이라 장 시작 전에는 0 → 일별시세 폴백이 채운다
+                'Recent_Volume': int(vol) if pd.notna(vol) and vol > 0 else 0,
+            })
+        if (total and len(out) >= total) or len(stocks) < _API_PAGE_SIZE:
+            break
+        page += 1
+        time.sleep(0.05)
+    return pd.DataFrame(out)
 
 
 def scrape_fnguide_supplement(stock_code, stock_name='', _max_retries=3):
@@ -315,6 +355,13 @@ def _parse_fnguide_consensus_json(resp, stock_name=''):
                 if pd.notna(val) and (yr not in bucket or pd.isna(bucket[yr])):
                     bucket[yr] = val
 
+        # PER 계산용: 가장 최근 '실적' 연도의 지배주주 당기순이익 (억원)
+        for _y in (2025, 2024, 2023):
+            _v = ni_ctrl.get(_y)
+            if _v is not None and pd.notna(_v) and _v > 0:
+                dm['당기순이익_지배'] = float(_v)
+                break
+
         # ── 지배비율 = 당기순이익(지배)/당기순이익 ──────────────────
         # 하나마이크론처럼 상장 자회사를 연결한 종목의 NCI 조정용.
         # 추정연도(26~28E) 평균 우선, 없으면 최근 실적연도. [0.2, 1.0] 클램프.
@@ -340,6 +387,11 @@ def scrape_fnguide_netdebt(stock_code, stock_name='', _max_retries=2):
     """FnGuide FinanceRatio 페이지에서 순부채(=순차입금, 억) 최근값을 가져온다.
     rtoAccumulate JSON의 NM='순부채' 행에서 가장 최근 non-null 값.
     (음수 = 순현금 — 그대로 반환, EV 계산에서 자연스럽게 반영됨)
+
+    [2026-09-14] 같은 응답에 부채비율·ROE 도 있으므로 함께 뽑아
+    _FG_RATIO_CACHE 에 담는다. 네이버 종목 페이지가 개편으로 죽어
+    scrape_naver_per_pbr_roe 가 더 이상 동작하지 않기 때문 —
+    요청을 늘리지 않고 지표를 복구한다.
     """
     if _FG_tripped.is_set():
         return None
@@ -364,14 +416,20 @@ def scrape_fnguide_netdebt(stock_code, stock_name='', _max_retries=2):
             obj = json.loads(raw)
             header = obj.get('header') or []
             cds = [h.get('CD') for h in header if h.get('CD')]
+            picked = {}
             for row in obj.get('data') or []:
                 nm = str(row.get('NM') or row.get('NAME') or '').strip()
-                if nm == '순부채':
+                key = ('순부채' if nm == '순부채' else
+                       '부채비율' if nm == '부채비율' else
+                       'ROE' if nm == 'ROE' else None)
+                if key and key not in picked:
                     vals = [parse_numeric(str(row.get(cd) if row.get(cd) is not None else ''))
                             for cd in cds]
                     vals = [v for v in vals if pd.notna(v)]
-                    return float(vals[-1]) if vals else None
-            return None
+                    if vals:
+                        picked[key] = float(vals[-1])
+            _FG_RATIO_CACHE[str(stock_code).zfill(6)] = picked
+            return picked.get('순부채')
         except Exception:
             return None
     return None
@@ -726,64 +784,17 @@ def get_avg_volume_20d(stock_code):
 def scrape_naver_consensus(stock_code, stock_name):
     result = {'종목코드': stock_code, '종목명': stock_name}
     try:
-        session = get_session()
-        resp = session.get(f"https://finance.naver.com/item/main.naver?code={stock_code}", timeout=7)
-        resp.encoding = 'utf-8'
-        if resp.status_code != 200: return None
-        soup = BeautifulSoup(resp.text, 'lxml')
-        cop = soup.find('div', class_='section cop_analysis')
-        if not cop: return None
-        table = cop.find('table')
-        if not table: return None
-        rows = table.find_all('tr')
-        if len(rows) < 5: return None
-
-        hcells = rows[1].find_all(['th', 'td'])
-        yi = []
-        for c in hcells:
-            m = re.search(r'(\d{4})[./]\d{2}', c.get_text(strip=True))
-            yi.append((int(m.group(1)), '(E)' in c.get_text(strip=True)) if m else None)
-        if not yi: return None
-
-        ac = 4
-        for c in rows[0].find_all(['th', 'td']):
-            cs = c.get('colspan')
-            if cs and ('연간' in c.get_text(strip=True) or '주요' in c.get_text(strip=True)):
-                try: ac = int(cs)
-                except: pass
-                break
-
+        # [2026-09-14] 네이버 증권 전면 개편으로 종목 페이지의 기업실적분석
+        # 테이블(div.section.cop_analysis)이 JS 렌더링으로 바뀌어 서버 응답
+        # 만으로는 파싱할 수 없다. FnGuide Consensus 를 1차 소스로 승격
+        # (2023~2028 전 연도를 한 번에 제공) — 아래 블록이 dm 을 채운다.
         dm = {}
-        for mn in ['매출액', '영업이익']:
-            candidate_rows = []
-            for ai in range(2, min(15, len(rows))):
-                ac2 = rows[ai].find_all(['th', 'td'])
-                if not ac2: continue
-                lb = ac2[0].get_text(strip=True)
-                if mn == '매출액' and '매출' in lb:
-                    candidate_rows.append(ac2)
-                elif mn == '영업이익' and '영업이익' in lb and '률' not in lb:
-                    candidate_rows.append(ac2)
-            best_data = {}
-            best_valid_count = -1
-            for cs in candidate_rows:
-                temp_data = {}
-                valid_count = 0
-                for i, cell in enumerate(cs[1:], 0):
-                    if i >= len(yi) or yi[i] is None or i >= ac: break
-                    val = parse_numeric(cell.get_text(strip=True))
-                    temp_data[yi[i][0]] = val
-                    if pd.notna(val): valid_count += 1
-                if valid_count > best_valid_count:
-                    best_valid_count = valid_count
-                    best_data = temp_data
-            dm[mn] = best_data
 
         try:
             fg = scrape_fnguide_supplement(stock_code, stock_name)
             for mn in ['매출액', '영업이익']:
                 if mn in fg:
-                    for yr in [2025, 2026, 2027, 2028]:
+                    for yr in [2023, 2024, 2025, 2026, 2027, 2028]:
                         if (yr not in dm.get(mn, {}) or pd.isna(dm.get(mn, {}).get(yr))) \
                                 and yr in fg[mn] and pd.notna(fg[mn][yr]):
                             if mn not in dm: dm[mn] = {}
@@ -827,18 +838,31 @@ def scrape_naver_consensus(stock_code, stock_name):
         result['데이터_가용성'] = f'{av}년치 존재'
         result['가용_연도수'] = av
 
-        # PER, PBR, ROE, 부채비율 크롤링
+        # PER, PBR, ROE, 부채비율
+        # [2026-09-14] 네이버 종목 페이지 개편으로 scrape_naver_per_pbr_roe 가
+        # 동작하지 않는다. ROE·부채비율은 위 순차입금 조회(FinanceRatio)에서
+        # 함께 받아둔 캐시를 쓰고, PER 은 시총/지배순이익으로 직접 계산한다.
+        # (PBR 은 대체 소스가 없어 결측 — 앱에서 이미 결측 허용)
+        result['PER'] = np.nan
+        result['PBR'] = np.nan
+        result['ROE'] = np.nan
+        result['부채비율'] = np.nan
         try:
-            indicators = scrape_naver_per_pbr_roe(stock_code)
-            result['PER'] = indicators.get('PER', np.nan)
-            result['PBR'] = indicators.get('PBR', np.nan)
-            result['ROE'] = indicators.get('ROE', np.nan)
-            result['부채비율'] = indicators.get('부채비율', np.nan)
-        except:
-            result['PER'] = np.nan
-            result['PBR'] = np.nan
-            result['ROE'] = np.nan
-            result['부채비율'] = np.nan
+            ratio = _FG_RATIO_CACHE.get(str(stock_code).zfill(6)) or {}
+            if ratio.get('ROE') is not None:
+                result['ROE'] = ratio['ROE']
+            if ratio.get('부채비율') is not None:
+                result['부채비율'] = ratio['부채비율']
+        except Exception:
+            pass
+        try:
+            # PER = 시가총액 / 지배주주 당기순이익 (둘 다 억원)
+            ni = (fg or {}).get('당기순이익_지배') if isinstance(fg, dict) else None
+            mc = result.get('시가총액')
+            if ni and mc and ni > 0:
+                result['PER'] = round(float(mc) / float(ni), 2)
+        except Exception:
+            pass
 
         # 보조지표·수급 통합 수집
         try:
@@ -1025,7 +1049,14 @@ def main():
             dfs.append(df_tmp)
             print(f"  {m_name}: {len(df_tmp)}개")
 
-    stock_df = pd.concat(dfs, ignore_index=True)
+    stock_df = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
+    # 수집 실패 시 조용히 KeyError 로 죽지 않도록 명확히 중단한다.
+    # (2026-09-10 네이버 개편 때 '0개 수집 → KeyError: 종목명'으로 4일간
+    #  크롤이 실패했는데 원인이 로그에 드러나지 않았다.)
+    if stock_df.empty or '종목명' not in stock_df.columns:
+        raise RuntimeError(
+            '종목 리스트를 한 건도 받지 못했습니다. 네이버 API 응답 형식이 '
+            '바뀌었을 수 있습니다 — get_stock_list_naver 를 점검하세요.')
     for p in ['스팩', 'SPAC', 'ETF', 'ETN', '리츠', 'REIT', '인버스', '레버리지', '선물', '채권']:
         stock_df = stock_df[~stock_df['종목명'].str.contains(p, na=False)]
     stock_df = stock_df.reset_index(drop=True)
