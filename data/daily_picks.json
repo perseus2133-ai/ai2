@@ -5354,5 +5354,113 @@
     "OBV 매집"
    ]
   }
+ ],
+ "2026-09-14": [
+  {
+   "code": "402340",
+   "name": "SK스퀘어",
+   "market": "KOSPI",
+   "sector": "반도체와반도체장비",
+   "price": 1089000.0,
+   "mcap": 1436652.0,
+   "score": 95.3,
+   "rev_score": 9.1,
+   "upside": 276.4,
+   "reasons": [
+    "영업이익 컨센 30일 +9.1% 상향",
+    "업종 대비 Upside +276% (EV·지배 보정, 저평가)",
+    "영업이익 CAGR(→28E) +90%/년",
+    "OBV 매집 · MACD 상승",
+    "ROE 86%"
+   ]
+  },
+  {
+   "code": "000660",
+   "name": "SK하이닉스",
+   "market": "KOSPI",
+   "sector": "반도체와반도체장비",
+   "price": 1812000.0,
+   "mcap": 13236522.0,
+   "score": 86.7,
+   "rev_score": 0.5,
+   "upside": 179.2,
+   "reasons": [
+    "영업이익 컨센 30일 +0.5% 상향",
+    "업종 대비 Upside +179% (EV·지배 보정, 저평가)",
+    "영업이익 CAGR(→28E) +105%/년",
+    "OBV 매집 · MACD 상승",
+    "ROE 93%"
+   ]
+  },
+  {
+   "code": "267270",
+   "name": "HD건설기계",
+   "market": "KOSPI",
+   "sector": "기계",
+   "price": 142500.0,
+   "mcap": 68289.0,
+   "score": 85.4,
+   "rev_score": 3.2,
+   "upside": 305.8,
+   "reasons": [
+    "영업이익 컨센 30일 +3.2% 상향",
+    "업종 대비 Upside +306% (EV·지배 보정, 저평가)",
+    "영업이익 CAGR(→28E) +89%/년",
+    "OBV 매집 · MACD 상승"
+   ]
+  },
+  {
+   "code": "080580",
+   "name": "오킨스전자",
+   "market": "KOSDAQ",
+   "sector": "반도체와반도체장비",
+   "price": 21100.0,
+   "mcap": 4450.0,
+   "score": 85.9,
+   "rev_score": 4.9,
+   "upside": 68.2,
+   "reasons": [
+    "영업이익 컨센 30일 +4.9% 상향",
+    "업종 대비 Upside +68% (EV·지배 보정, 저평가)",
+    "영업이익 CAGR(→28E) +98%/년",
+    "OBV 매집 · MACD 상승",
+    "ROE 30%"
+   ]
+  },
+  {
+   "code": "149950",
+   "name": "아바텍",
+   "market": "KOSDAQ",
+   "sector": "디스플레이장비및부품",
+   "price": 10330.0,
+   "mcap": 1412.0,
+   "score": 85.7,
+   "rev_score": 14.0,
+   "upside": 67.1,
+   "reasons": [
+    "영업이익 컨센 30일 +14.0% 상향",
+    "업종 대비 Upside +67% (EV·지배 보정, 저평가)",
+    "영업이익 CAGR(→28E) +98%/년",
+    "OBV 매집 · MACD 상승"
+   ]
+  },
+  {
+   "code": "170920",
+   "name": "엘티씨",
+   "market": "KOSDAQ",
+   "sector": "반도체와반도체장비",
+   "price": 33600.0,
+   "mcap": 3550.0,
+   "score": 85.6,
+   "rev_score": 6.3,
+   "upside": 102.3,
+   "reasons": [
+    "영업이익 컨센 30일 +6.3% 상향",
+    "업종 대비 Upside +102% (EV·지배 보정, 저평가)",
+    "영업이익 CAGR(→28E) +73%/년",
+    "MACD 상승",
+    "ROE 16%"
+   ]
+  }
  ]
 }
