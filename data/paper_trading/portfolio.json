@@ -1,5 +1,5 @@
 {
-  "cash": 6332560.0,
+  "cash": 4798560.0,
   "holdings": {
     "096770": {
       "종목명": "SK이노베이션",
@@ -37,16 +37,16 @@
       "tp50_done": false,
       "tp100_done": false
     },
-    "005930": {
-      "종목명": "삼성전자",
-      "shares": 80,
-      "avg_price": 269500.0,
-      "peak_price": 269500.0,
-      "bought": "2026-09-09",
+    "267270": {
+      "종목명": "HD건설기계",
+      "shares": 161,
+      "avg_price": 134000.0,
+      "peak_price": 134000.0,
+      "bought": "2026-09-16",
       "tp50_done": false,
       "tp100_done": false
     }
   },
   "started": "2026-07-08",
-  "last_rebalance": "2026-09-09"
+  "last_rebalance": "2026-09-16"
 }
