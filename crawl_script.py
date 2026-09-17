@@ -567,33 +567,38 @@ def scrape_naver_per_pbr_roe(stock_code):
 
 
 def get_daily_pv(stock_code, n_pages=2):
-    """네이버 일별 시세에서 종가/거래량 시계열을 반환한다 (최신순)."""
-    session = get_session()
+    """일별 종가/거래량 시계열 (최신순).
+
+    [2026-09-18] 네이버 개편 2차 — 일별시세 HTML(sise_day.naver)까지 죽어
+    0건을 반환했다(보조지표·수급이 전부 결측이 된 원인).
+    차트 JSON API 로 교체: 한 번의 요청으로 기간 전체를 받는다.
+      api.stock.naver.com/chart/domestic/item/{code}/day
+    n_pages 는 옛 시그니처 호환용 — 1페이지 ≒ 10영업일로 환산한다.
+    """
+    days = max(30, int(n_pages) * 10 + 20)
+    end = now_kst()
+    start = end - datetime.timedelta(days=int(days * 1.9) + 15)   # 주말·휴일 여유
+    url = ('https://api.stock.naver.com/chart/domestic/item/'
+           f'{str(stock_code).zfill(6)}/day'
+           f'?startDateTime={start.strftime("%Y%m%d")}0000'
+           f'&endDateTime={end.strftime("%Y%m%d")}0000')
     prices, volumes = [], []
-    for page in range(1, n_pages + 1):
-        try:
-            url = f'https://finance.naver.com/item/sise_day.naver?code={stock_code}&page={page}'
-            resp = session.get(url, timeout=6)
-            resp.encoding = 'euc-kr'
-            soup = BeautifulSoup(resp.text, 'lxml')
-            table = soup.find('table', class_='type2')
-            if not table:
-                break
-            page_added = 0
-            for row in table.find_all('tr'):
-                cells = row.find_all('td')
-                if len(cells) < 7:
-                    continue
-                close_text = cells[1].get_text(strip=True).replace(',', '')
-                vol_text = cells[6].get_text(strip=True).replace(',', '')
-                if close_text.isdigit() and vol_text.isdigit() and int(vol_text) > 0:
-                    prices.append(int(close_text))
-                    volumes.append(int(vol_text))
-                    page_added += 1
-            if page_added == 0:
-                break
-        except:
-            break
+    try:
+        d = _api_get(url, retries=2)
+        if not isinstance(d, list):
+            return prices, volumes
+        rows = []
+        for x in d:
+            c = _api_num(x.get('closePrice'))
+            v = _api_num(x.get('accumulatedTradingVolume'))
+            dt_ = str(x.get('localDate') or '')
+            if pd.notna(c) and c > 0 and pd.notna(v) and v > 0 and dt_:
+                rows.append((dt_, int(c), int(v)))
+        rows.sort(key=lambda r: r[0], reverse=True)          # 최신순
+        for _, c, v in rows:
+            prices.append(c); volumes.append(v)
+    except Exception:
+        pass
     return prices, volumes
 
 
@@ -679,61 +684,36 @@ def calc_macd_signal(prices, fast=12, slow=26, sig=9):
     return ''
 
 
-def scrape_foreign_inst(stock_code):
-    """네이버 외인·기관 일별 순매매 (단위: 주). 5일/20일 누적.
+def fetch_investor_flow(stock_code):
+    """외국인·기관 순매수 주식수 합계 (5일/20일).
 
-    ⚠️ 2026-09 수집 실패(2619종목 전부 NaN) 원인 — 버그 2개가 겹쳐 있었다.
-       1) frgn 페이지에는 class='type2' 테이블이 2개다.
-            [0] 거래원 매도/매수 상위 (4열)   ← find()가 잡던 것
-            [1] 일별 기관·외국인 순매매 (9열) ← 실제로 필요한 것
-          첫 테이블엔 9열 행이 없어 전부 continue → 항상 빈 결과였다.
-       2) 열 순서도 반대였다. 실제 배치는
-            0날짜 1종가 2전일비 3등락률 4거래량 5기관 6외국인 7보유주수 8보유율
-          인데 [5]=외인, [8]=기관으로 읽고 있었다([8]은 보유율 '46.71%').
-       → 헤더 텍스트로 테이블을 고르고, 보유율 열에 '%'가 있는지 확인해
-         페이지 구조가 또 바뀌면 조용히 오염되는 대신 건너뛰게 했다.
+    [2026-09-18] 네이버 개편으로 frgn.naver HTML 이 죽어 JSON API 로 교체.
+      m.stock.naver.com/api/stock/{code}/trend
+    응답의 foreignerPureBuyQuant / organPureBuyQuant 는 '+1,234' / '-567'
+    형태의 순매수 '주식 수' — 기존 컬럼과 단위가 같다.
     """
     out = {'외인_5d': np.nan, '외인_20d': np.nan,
            '기관_5d': np.nan, '기관_20d': np.nan}
-    foreign_buys, inst_buys = [], []
     try:
-        session = get_session()
-        for page in (1, 2):
-            url = f'https://finance.naver.com/item/frgn.naver?code={stock_code}&page={page}'
-            resp = session.get(url, timeout=6)
-            resp.encoding = 'euc-kr'
-            soup = BeautifulSoup(resp.text, 'lxml')
-            table = None
-            for t in soup.find_all('table', class_='type2'):
-                head = t.get_text(' ', strip=True)[:120]
-                if '외국인' in head and '기관' in head:
-                    table = t
-                    break
-            if table is None: break
-            page_added = 0
-            for row in table.find_all('tr'):
-                cells = row.find_all('td')
-                if len(cells) < 9: continue
-                date_text = cells[0].get_text(strip=True)
-                if not re.match(r'\d{4}\.\d{2}\.\d{2}', date_text):
-                    continue
-                if '%' not in cells[8].get_text():   # 구조 변경 감지
-                    continue
-                try:
-                    i_text = cells[5].get_text(strip=True).replace(',', '').replace('+', '')
-                    f_text = cells[6].get_text(strip=True).replace(',', '').replace('+', '')
-                    i_val = int(i_text) if i_text not in ('', '-') else 0
-                    f_val = int(f_text) if f_text not in ('', '-') else 0
-                except (ValueError, IndexError):
-                    continue
-                foreign_buys.append(f_val); inst_buys.append(i_val); page_added += 1
-            if page_added == 0: break
-        if foreign_buys:
-            out['외인_5d']  = sum(foreign_buys[:5])
-            out['외인_20d'] = sum(foreign_buys[:20])
-            out['기관_5d']  = sum(inst_buys[:5])
-            out['기관_20d'] = sum(inst_buys[:20])
-    except:
+        d = _api_get(f'https://m.stock.naver.com/api/stock/'
+                     f'{str(stock_code).zfill(6)}/trend?pageSize=30&page=1', retries=2)
+        if not isinstance(d, list) or not d:
+            return out
+        rows = []
+        for x in d:
+            bd = str(x.get('bizdate') or '')
+            f = _api_num(str(x.get('foreignerPureBuyQuant') or '').replace('+', ''))
+            i = _api_num(str(x.get('organPureBuyQuant') or '').replace('+', ''))
+            if bd:
+                rows.append((bd, 0.0 if pd.isna(f) else f, 0.0 if pd.isna(i) else i))
+        if not rows:
+            return out
+        rows.sort(key=lambda r: r[0], reverse=True)           # 최신순
+        fb = [r[1] for r in rows]
+        ib = [r[2] for r in rows]
+        out['외인_5d'] = sum(fb[:5]);   out['외인_20d'] = sum(fb[:20])
+        out['기관_5d'] = sum(ib[:5]);   out['기관_20d'] = sum(ib[:20])
+    except Exception:
         pass
     return out
 
@@ -770,7 +750,7 @@ def fetch_supplement_indicators(stock_code):
     except:
         pass
     try:
-        out.update(scrape_foreign_inst(stock_code))
+        out.update(fetch_investor_flow(stock_code))
     except:
         pass
     return out
@@ -1168,6 +1148,23 @@ def main():
         json.dump(meta, f, ensure_ascii=False, indent=2)
 
     print(f"[{now_kst()}] ✅ 데이터 저장 완료! {len(results)}개 → {CSV_FILE}")
+
+    # 3.8단계: 보조지표 수집 건전성 점검
+    # 2026-09-18 네이버 개편 2차로 일별시세·수급 HTML 이 죽었는데, 예외가
+    # 모두 삼켜져 크롤은 'success' 인 채 지표만 전부 결측이 됐다(4일간 방치).
+    # 핵심 지표가 통째로 비면 즉시 크게 경고한다.
+    try:
+        _n = len(df)
+        for _col, _label in (('평균거래량_20d', '일별시세'), ('외인_5d', '외인·기관 수급')):
+            _have = pd.to_numeric(df.get(_col), errors='coerce').notna().sum() if _col in df else 0
+            _pct = (_have / _n * 100) if _n else 0
+            _mark = '✅' if _pct >= 50 else '⚠️'
+            print(f"  {_mark} {_label}: {_have}/{_n} ({_pct:.0f}%)")
+            if _pct < 10:
+                print(f"  [ALERT] {_label} 수집이 사실상 실패했습니다 — "
+                      f"네이버 API 변경 가능성. 해당 수집 함수를 점검하세요.")
+    except Exception as _e:
+        print(f"  [WARN] 지표 점검 실패(무시): {_e}")
 
     # 3.9단계: 기업개요 갱신 (신규 상장 종목만 증분 수집 → 평소 부하 없음)
     print("3.9단계: 기업개요 갱신...")
