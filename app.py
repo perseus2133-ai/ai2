@@ -18,6 +18,7 @@ import os
 import json
 import io
 import snapshot_io
+from auth_config import configured_password
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from zoneinfo import ZoneInfo
 import warnings
@@ -2391,7 +2392,10 @@ def attach_verdicts(df):
 # 접근 제어 (비밀번호)
 # ============================================================
 def check_password():
-    _PW = "9084"
+    _PW = configured_password(st.secrets)
+    if not _PW:
+        st.error('앱 비밀번호가 설정되지 않았습니다. 관리자에게 문의하세요.')
+        return False
 
     def password_entered():
         """비밀번호 입력 콜백.
@@ -2849,7 +2853,7 @@ def render_stock_card(row, rank):
 
     pills_html = (
         f'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px;align-items:flex-start;">'
-        + pill('PER (TTM)', per_str)
+        + pill('PER (실적)', per_str)
         + pill('Forward PER', fwd_per_str, hi=True)
         + pill('업종 PER', sec_per_str)
         + pill('PBR', pbr_str)
@@ -3835,7 +3839,7 @@ def main():
                 # 코드 정규화
                 base['__code'] = base['종목코드'].astype(str).str.zfill(6)
                 # 검색 조건: 종목명 contains (대소문자 무시) OR 코드 contains
-                name_mask = base['종목명'].astype(str).str.contains(q, case=False, na=False)
+                name_mask = base['종목명'].astype(str).str.contains(q, case=False, na=False, regex=False)
                 if q.isdigit():
                     code_mask = base['__code'].str.contains(q.zfill(min(6, len(q))) if len(q) >= 3 else q, na=False)
                 else:
@@ -4157,7 +4161,7 @@ def main():
                 "Recent_Volume": st.column_config.NumberColumn("거래량", format="%d"),
                 "거래량배수": st.column_config.NumberColumn("거래량배수(20d)", format="%.1fx"),
                 "시가총액": st.column_config.NumberColumn("시총(억)", format="%d"),
-                "PER": st.column_config.NumberColumn("PER(TTM)", format="%.1f"),
+                "PER": st.column_config.NumberColumn("PER(실적)", format="%.1f", help="시가총액 / 최근 가용 연간 지배주주 순이익. TTM과 다를 수 있습니다."),
                 "Forward_PER": st.column_config.NumberColumn("Fwd PER", format="%.1f"),
                 "PEG": st.column_config.NumberColumn("PEG", format="%.2f"),
                 "PBR": st.column_config.NumberColumn("PBR", format="%.2f"),

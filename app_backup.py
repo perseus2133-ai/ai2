@@ -680,8 +680,13 @@ def format_volume(v):
 # ============================================================
 def check_password():
     """Returns `True` if the user had the correct password."""
+    from auth_config import configured_password
+    expected = configured_password(st.secrets)
+    if not expected:
+        st.error('APP_PASSWORD 설정이 필요합니다.')
+        return False
     def password_entered():
-        if st.session_state["password"] == "9084":
+        if st.session_state.get("password") == expected:
             st.session_state["password_correct"] = True
             del st.session_state["password"]
         else:

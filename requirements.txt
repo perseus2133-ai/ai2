@@ -1,5 +1,7 @@
 ﻿streamlit
 pandas
+numpy
+tzdata
 requests
 beautifulsoup4
 lxml

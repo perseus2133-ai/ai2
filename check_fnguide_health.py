@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""FnGuide 수집 헬스체크 — GitHub Actions 마지막 단계에서 실행.
+"""FnGuide 수집 헬스체크 — 모의투자·데이터 게시 전에 실행.
 
 crawl_script.py가 남긴 data/fnguide_health.json 을 읽어 이상이면
-exit 1 로 run 을 실패 처리한다. 데이터 push '이후'에 실행되므로
-그날 네이버 데이터는 이미 안전하게 커밋된 상태에서 알림만 발생한다.
+exit 1 로 run 을 실패 처리한다. fresh 수집이 실패하면 모의투자와
+새 데이터 게시를 중단하고 저장소에는 직전 정상 데이터가 유지된다.
 
 run 이 실패하면 GitHub 이 저장소 소유자에게 자동으로 실패 메일을
 보내므로, 별도 알림 인프라 없이 '주소 변경/사이트 개편' 같은 이상을
@@ -21,6 +21,9 @@ import sys
 import json
 import datetime
 from zoneinfo import ZoneInfo
+
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 HEALTH_FILE = os.path.join(HERE, 'data', 'fnguide_health.json')
@@ -53,7 +56,7 @@ def main():
         err = h.get('error')
         if err:
             print(f'   오류: {err}')
-        print('   (앱 데이터는 carry-forward 로 45일간 유지되므로 급하지 않지만, 확인이 필요합니다.)')
+        print('   새 데이터 게시와 모의매매를 중단합니다. 앱에는 직전 정상 데이터가 남습니다.')
         sys.exit(1)
 
     print(f"✅ FnGuide 정상: fresh 27E={h.get('fresh_27')} / 28E={h.get('fresh_28')}")

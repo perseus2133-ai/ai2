@@ -16,6 +16,7 @@ import threading
 import os
 import json
 import snapshot_io
+from data_quality import validate_frame
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from zoneinfo import ZoneInfo
 import warnings
@@ -358,7 +359,7 @@ def _parse_fnguide_consensus_json(resp, stock_name=''):
         # PER 계산용: 가장 최근 '실적' 연도의 지배주주 당기순이익 (억원)
         for _y in (2025, 2024, 2023):
             _v = ni_ctrl.get(_y)
-            if _v is not None and pd.notna(_v) and _v > 0:
+            if _v is not None and pd.notna(_v):
                 dm['당기순이익_지배'] = float(_v)
                 break
 
@@ -761,7 +762,7 @@ def get_avg_volume_20d(stock_code):
     return fetch_supplement_indicators(stock_code).get('평균거래량_20d', np.nan)
 
 
-def scrape_naver_consensus(stock_code, stock_name):
+def scrape_naver_consensus(stock_code, stock_name, market_cap=None):
     result = {'종목코드': stock_code, '종목명': stock_name}
     try:
         # [2026-09-14] 네이버 증권 전면 개편으로 종목 페이지의 기업실적분석
@@ -838,8 +839,8 @@ def scrape_naver_consensus(stock_code, stock_name):
         try:
             # PER = 시가총액 / 지배주주 당기순이익 (둘 다 억원)
             ni = (fg or {}).get('당기순이익_지배') if isinstance(fg, dict) else None
-            mc = result.get('시가총액')
-            if ni and mc and ni > 0:
+            mc = market_cap
+            if ni is not None and mc is not None and ni > 0 and mc > 0:
                 result['PER'] = round(float(mc) / float(ni), 2)
         except Exception:
             pass
@@ -875,6 +876,8 @@ def save_consensus_snapshot(df):
     시점 재료다 — 역채움을 하지 않으므로 지금 안 남기면 복원할 수 없다."""
     if snapshot_io.save_snapshot(df, SNAPSHOT_DIR, now_kst().strftime('%Y-%m-%d')):
         print(f"  스냅샷 저장 완료 ({len(snapshot_io.ALL_FIELDS)}개 필드)")
+    else:
+        raise RuntimeError('당일 raw 스냅샷 저장 실패 — 후속 처리 중단')
 
 
 def write_fnguide_health(df):
@@ -910,6 +913,8 @@ def write_fnguide_health(df):
     with open(HEALTH_FILE, 'w', encoding='utf-8') as f:
         json.dump(health, f, ensure_ascii=False, indent=2)
     print(f"헬스 기록: fresh 27E={fresh27} 28E={fresh28} ok={ok}")
+    if not ok:
+        raise RuntimeError('FnGuide fresh 27/28E 수집 0건 — 데이터 게시 중단')
 
 
 # ============================================================
@@ -1046,10 +1051,8 @@ def main():
     print("1.5단계: 업종 데이터 수집...")
     sector_map = get_naver_sector_map()
     print(f"  업종 매핑 {len(sector_map)}개 종목")
-    # sector_map.json 저장 (앱에서 즉시 사용 가능)
+    # 검증에 성공한 데이터만 기존 업종 맵을 대체한다.
     sector_json_path = os.path.join(DATA_DIR, "sector_map.json")
-    with open(sector_json_path, "w", encoding="utf-8") as _f:
-        json.dump(sector_map, _f, ensure_ascii=False)
     print(f"  필터 후 총 {len(stock_df)}개")
 
     # 2단계: 컨센서스 크롤링
@@ -1058,7 +1061,7 @@ def main():
     results, counter, lock = [], [0], threading.Lock()
 
     def process(rd):
-        c = scrape_naver_consensus(rd['종목코드'], rd['종목명'])
+        c = scrape_naver_consensus(rd['종목코드'], rd['종목명'], market_cap=rd['시가총액'])
         if c:
             c['시장'] = rd['시장']
             c['현재가'] = rd['현재가']
@@ -1105,12 +1108,14 @@ def main():
                           f, ensure_ascii=False, indent=2)
         except Exception:
             pass
-        return
+        raise RuntimeError('크롤 결과 0건 — 기존 데이터로 후속 작업을 실행하지 않습니다.')
 
     # 3단계: CSV 저장
     df = pd.DataFrame(results)
     # 업종 데이터 매핑 (인덱스 정수 접두어 제거 후 6자리)
     df['업종'] = df['종목코드'].astype(str).str.zfill(6).map(sector_map).fillna('기타')
+    previous = pd.read_csv(CSV_FILE, dtype={'종목코드': str}) if os.path.exists(CSV_FILE) else None
+    validate_frame(df, previous=previous)
 
     # 3-A: 컨센서스 스냅샷은 '오늘 실제로 받은 값'을 정직하게 기록한다.
     #      (carry-forward 보강 전에 저장 → 보강 소스가 raw fetch로 유지되어
@@ -1119,23 +1124,19 @@ def main():
     save_consensus_snapshot(df)
 
     # 3-A': FnGuide 헬스 기록 — 오늘 fresh 27/28E 수집량을 남긴다.
-    #       워크플로 마지막 단계(check_fnguide_health.py)가 이 파일을 읽어
-    #       0건이면 run을 실패 처리 → GitHub이 소유자에게 실패 메일 발송.
+    #       0건이거나 기록에 실패하면 중단한다. 워크플로에서도 매매·게시 전에
+    #       check_fnguide_health.py로 당일 기록을 다시 확인한다.
     #       2026-06-22 FnGuide 개편(구 URL 사망)을 6일 뒤에야 사람이
     #       눈치챈 사고의 재발 방지책.
-    try:
-        write_fnguide_health(df)
-    except Exception as e:
-        print(f"[WARN] 헬스 기록 실패(무시): {e}")
+    write_fnguide_health(df)
 
     # 3-B: FnGuide 간헐 차단으로 27E·28E가 NaN인 칸을 최근 스냅샷의
     #      마지막 좋은 값으로 보강한다 (consensus_persist.merge_carry_forward).
-    try:
-        from consensus_persist import merge_carry_forward
-        df = merge_carry_forward(df, SNAPSHOT_DIR, today=now_kst().date())
-    except Exception as e:
-        print(f"[WARN] carry-forward 실패(무시): {e}")
+    from consensus_persist import merge_carry_forward
+    df = merge_carry_forward(df, SNAPSHOT_DIR, today=now_kst().date())
 
+    with open(sector_json_path, 'w', encoding='utf-8') as _f:
+        json.dump(sector_map, _f, ensure_ascii=False)
     df.to_csv(CSV_FILE, index=False, encoding='utf-8-sig')
 
     meta = {
@@ -1189,7 +1190,7 @@ def main():
         for p in picks:
             print(f"  🤖 {p['name']} (점수 {p['score']}) — {' / '.join(p['reasons'][:2])}")
     except Exception as e:
-        print(f"[WARN] 데일리 3선 실패(무시): {e}")
+        raise RuntimeError('당일 AI 3선 생성/저장 실패 — 후속 처리 중단') from e
 
     print(f"[{now_kst()}] ✅ 전체 완료!")
 

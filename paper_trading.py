@@ -37,6 +37,7 @@ import datetime
 import numpy as np
 import pandas as pd
 from zoneinfo import ZoneInfo
+from data_quality import validate_saved_data
 
 KST = ZoneInfo('Asia/Seoul')
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -67,18 +68,17 @@ def now_kst():
 
 def _load_json(path, default):
     if os.path.exists(path):
-        try:
-            with open(path, encoding='utf-8') as f:
-                return json.load(f)
-        except Exception:
-            pass
+        with open(path, encoding='utf-8') as f:
+            return json.load(f)
     return default
 
 
 def _save_json(path, obj):
     os.makedirs(PT_DIR, exist_ok=True)
-    with open(path, 'w', encoding='utf-8') as f:
+    tmp = str(path) + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
         json.dump(obj, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
 
 
 # ============================================================
@@ -109,6 +109,8 @@ def _hard_filter(row):
     price = row.get('현재가', 0) or 0
     vol = row.get('Recent_Volume', 0) or 0
     mcap = row.get('시가총액', 0) or 0
+    if not all(pd.notna(v) and np.isfinite(v) for v in (price, vol, mcap)):
+        return False
     if price <= 0 or mcap < 2000:                      # 시총 2,000억+
         return False
     if price * vol < 3_000_000_000:                    # 거래대금 30억+
@@ -189,6 +191,8 @@ def rank_universe(df):
 
 def pick_top(ranked, n, exclude_codes=(), sector_count=None):
     """업종당 MAX_PER_SECTOR 제한을 지키며 상위 n개 선정."""
+    if n <= 0:
+        return []
     if sector_count is None:
         sector_count = {}
     picks = []
@@ -376,7 +380,7 @@ def cmd_init():
     if os.path.exists(PORTFOLIO_FILE):
         print('이미 포트폴리오가 있습니다. --status 로 확인하세요.')
         return
-    df = load_universe()
+    df = validate_saved_data(os.path.dirname(CSV_FILE), today=now_kst().date())
     pf = {'cash': float(INITIAL_CAPITAL), 'holdings': {},
           'started': now_kst().strftime('%Y-%m-%d'), 'last_rebalance': ''}
     print(f'💰 모의투자 시작 — 초기 자본 {INITIAL_CAPITAL:,}원, 최적 {N_HOLDINGS}종목 선정\n')
@@ -387,12 +391,13 @@ def cmd_init():
 
 
 def cmd_auto():
-    if not os.path.exists(CSV_FILE):
-        print('[WARN] CSV 없음 — 건너뜀'); return
     if not os.path.exists(PORTFOLIO_FILE):
         cmd_init(); return
-    df = load_universe()
+    df = validate_saved_data(os.path.dirname(CSV_FILE), today=now_kst().date())
     pf = _load_json(PORTFOLIO_FILE, None)
+    missing = set(pf['holdings']) - set(current_prices(df))
+    if missing:
+        raise ValueError(f'보유종목 현재가 누락 — 모의매매/평가 중단: {sorted(missing)}')
     last = pf.get('last_rebalance') or pf.get('started')
     days = (now_kst().date() - datetime.datetime.strptime(last, '%Y-%m-%d').date()).days
     if days >= REBALANCE_DAYS:

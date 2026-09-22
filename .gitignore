@@ -3,3 +3,7 @@ __pycache__/
 *.pyc
 consensus_cache.pkl
 data/*.bak_*.csv
+.pytest_cache/
+.streamlit/secrets.toml
+.env
+*.tmp

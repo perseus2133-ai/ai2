@@ -42,6 +42,20 @@ TOP_N = 3
 MAX_PER_SECTOR = 2
 
 
+def _save_picks(history_path, today, records):
+    # 손상된 기록은 빈 dict로 덮어쓰지 않고 작업을 중단한다.
+    hist = {}
+    if os.path.exists(history_path):
+        with open(history_path, encoding='utf-8') as f:
+            hist = json.load(f)
+    hist[today.isoformat()] = records
+    os.makedirs(os.path.dirname(os.path.abspath(history_path)), exist_ok=True)
+    tmp = str(history_path) + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(hist, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, history_path)
+
+
 def _is_preferred(name):
     s = str(name or '').strip()
     return len(s) >= 2 and (s.endswith('우') or s.endswith('우B'))
@@ -90,7 +104,7 @@ def _op_cagr(row):
 
 
 def generate_daily_picks(df, snapshot_dir, history_path, today=None, top_n=TOP_N):
-    """선정 + 기록. 반환: 오늘의 픽 리스트 (실패/후보부족 시 빈 리스트)."""
+    """선정 + 기록. 후보 부족이면 빈 기록 저장, 데이터/저장 오류는 전파."""
     today = today or datetime.date.today()
     df = df.copy()
     df['종목코드'] = df['종목코드'].astype(str).str.zfill(6)
@@ -120,6 +134,7 @@ def generate_daily_picks(df, snapshot_dir, history_path, today=None, top_n=TOP_N
     )
     pool = df[eligible].copy()
     if len(pool) < top_n:
+        _save_picks(history_path, today, [])
         return []
 
     # ── 팩터 원값 ──
@@ -143,7 +158,7 @@ def generate_daily_picks(df, snapshot_dir, history_path, today=None, top_n=TOP_N
     # 기술 가점
     bonus = pd.Series(0.0, index=pool.index)
     bonus += np.where(pool.get('OBV_trend', '').astype(str) == 'up', 3, 0)
-    bonus += np.where(pool.get('MA_align', '').astype(str) == 'bull', 3, 0)
+    bonus += np.where(pool.get('MA_align', '').astype(str) == 'up', 3, 0)
     bonus += np.where(pool.get('MACD_signal', '').astype(str).isin(['bull', 'bull_cross']), 2, 0)
     rsi = pd.to_numeric(pool.get('RSI'), errors='coerce')
     bonus += np.where(rsi.notna() & (rsi >= 40) & (rsi <= 65), 2, 0)
@@ -214,7 +229,7 @@ def generate_daily_picks(df, snapshot_dir, history_path, today=None, top_n=TOP_N
             out.append(f"외인·기관 5일 순매수 시총의 {r['_flow']:.2f}%")
         tech = []
         if str(r.get('OBV_trend')) == 'up': tech.append('OBV 매집')
-        if str(r.get('MA_align')) == 'bull': tech.append('정배열')
+        if str(r.get('MA_align')) == 'up': tech.append('정배열')
         if str(r.get('MACD_signal')) in ('bull', 'bull_cross'): tech.append('MACD 상승')
         if tech:
             out.append(' · '.join(tech))
@@ -239,17 +254,5 @@ def generate_daily_picks(df, snapshot_dir, history_path, today=None, top_n=TOP_N
         })
 
     # ── 누적 기록 저장 (같은 날짜 재실행 시 덮어씀) ──
-    hist = {}
-    if os.path.exists(history_path):
-        try:
-            hist = json.load(open(history_path, encoding='utf-8'))
-        except Exception:
-            hist = {}
-    hist[today.isoformat()] = records
-    try:
-        os.makedirs(os.path.dirname(history_path), exist_ok=True)
-        json.dump(hist, open(history_path, 'w', encoding='utf-8'),
-                  ensure_ascii=False, indent=1)
-    except Exception:
-        pass
+    _save_picks(history_path, today, records)
     return records
