@@ -50,6 +50,8 @@ def refresh_access_token():
     j = r.json()
     if 'access_token' not in j:
         print(f'❌ 토큰 갱신 실패: {j}')
+        if str(j.get('error_code')) == 'KOE322':
+            print('   → 리프레시 토큰이 만료됐습니다. python kakao_auth_setup.py 로 재발급하세요.')
         return None
     new_rt = j.get('refresh_token')
     if new_rt and new_rt != REFRESH_TOKEN:
@@ -116,20 +118,22 @@ def send(access_token, text):
 def main():
     if not REST_KEY or not REFRESH_TOKEN:
         print('ℹ️ KAKAO_REST_KEY / KAKAO_REFRESH_TOKEN 미설정 — 카톡 전송 건너뜀')
-        return
+        return 0
     date, txt = build_message()
     if not txt:
         print('ℹ️ 보낼 픽 데이터가 없습니다 — 건너뜀')
-        return
+        return 0
     token = refresh_access_token()
     if not token:
-        return
+        return 1
     ok, resp = send(token, txt)
     if ok:
         print(f'✅ 카톡 전송 완료 ({date} 선정, {len(txt)}자)')
+        return 0
     else:
         print(f'❌ 카톡 전송 실패: {resp}')
+        return 1
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())
