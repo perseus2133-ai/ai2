@@ -1,20 +1,11 @@
 {
-  "cash": 4798560.0,
+  "cash": 3271660.0,
   "holdings": {
     "096770": {
       "종목명": "SK이노베이션",
       "shares": 173,
       "avg_price": 103800.0,
       "peak_price": 153500.0,
-      "bought": "2026-07-08",
-      "tp50_done": false,
-      "tp100_done": false
-    },
-    "010950": {
-      "종목명": "S-Oil",
-      "shares": 141,
-      "avg_price": 127400.0,
-      "peak_price": 165900.0,
       "bought": "2026-07-08",
       "tp50_done": false,
       "tp100_done": false
@@ -32,21 +23,30 @@
       "종목명": "태웅",
       "shares": 622,
       "avg_price": 34850.0,
-      "peak_price": 39350.0,
+      "peak_price": 40250.0,
       "bought": "2026-09-09",
       "tp50_done": false,
       "tp100_done": false
     },
-    "267270": {
-      "종목명": "HD건설기계",
-      "shares": 161,
-      "avg_price": 134000.0,
-      "peak_price": 142500.0,
-      "bought": "2026-09-16",
+    "332570": {
+      "종목명": "PS일렉트로닉스",
+      "shares": 2565,
+      "avg_price": 8880.0,
+      "peak_price": 8880.0,
+      "bought": "2026-09-23",
+      "tp50_done": false,
+      "tp100_done": false
+    },
+    "356860": {
+      "종목명": "티엘비",
+      "shares": 510,
+      "avg_price": 44600.0,
+      "peak_price": 44600.0,
+      "bought": "2026-09-23",
       "tp50_done": false,
       "tp100_done": false
     }
   },
   "started": "2026-07-08",
-  "last_rebalance": "2026-09-16"
+  "last_rebalance": "2026-09-23"
 }
