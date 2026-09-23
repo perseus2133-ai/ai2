@@ -69,6 +69,13 @@ jobs:
       - name: 💰 모의투자 평가/리밸런싱
         run: python paper_trading.py --auto
 
+      # 부가 성과 수집 실패로 정상 수집/추천 게시를 막지 않는다.
+      # 실패 시 이전 보고서는 앱의 기록·시점 검증에 의해 숨겨진다.
+      - name: 📈 데일리 추천 시장 대비 성과
+        id: performance
+        continue-on-error: true
+        run: python picks_performance.py
+
       - name: 💾 데이터 커밋 & 푸시
         run: |
           git config user.name  "github-actions[bot]"
@@ -88,3 +95,9 @@ jobs:
           APP_URL: ${{ secrets.APP_URL }}
           GH_PAT: ${{ secrets.GH_PAT }}
         run: python kakao_send.py
+
+      - name: 성과 수집 실패 표시
+        if: always() && steps.performance.outcome == 'failure'
+        run: |
+          echo "::error::성과 수집 실패. 정상 데이터 게시와 별개로 성과 비교표 갱신을 확인하세요."
+          exit 1
