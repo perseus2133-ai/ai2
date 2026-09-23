@@ -132,3 +132,74 @@ def test_card_integration_has_separate_candles_above_growth(monkeypatch):
         assert card.index('qcd-candle-box') < card.index('매출 성장률')
         assert '영업이익 성장률' in card
         assert '최근 6개월 · 일봉' in card
+
+
+@pytest.mark.parametrize('period', [5, 20, 60])
+def test_sma_exact_window_no_partial_average_or_future_values(period):
+    rows = [{'date': str(i), 'close': float(i + 1)} for i in range(65)]
+    enriched = charts.add_moving_averages(rows)
+    assert enriched[period-2][f'ma{period}'] is None
+    assert enriched[period-1][f'ma{period}'] == pytest.approx((period+1)/2)
+    assert enriched[period][f'ma{period}'] == pytest.approx((period+3)/2)
+    assert all(f'ma{period}' not in row for row in rows)
+    rows[-1]['close'] = 999999.
+    assert charts.add_moving_averages(rows)[:-1] == enriched[:-1]
+
+
+def test_warmup_prices_compute_first_visible_sma_without_expanding_chart(monkeypatch):
+    import pandas as pd
+    dates = pd.bdate_range('2025-12-01', '2026-09-23')
+    payload = [raw(day.strftime('%Y%m%d'), openPrice=i+100, closePrice=i+100,
+                   highPrice=i+101, lowPrice=i+99) for i, day in enumerate(dates)]
+    calls = []
+    class Response:
+        def raise_for_status(self): pass
+        def json(self): return payload
+    def get(url, **kwargs):
+        calls.append(kwargs)
+        return Response()
+    monkeypatch.setattr(charts.requests, 'get', get)
+    data = charts.load_candles('005930', '2026-09-23')
+    first = data['rows'][0]
+    assert first['date'] == '2026-03-23'
+    assert data['rows'][-1]['date'] == '2026-09-22'
+    position = next(i for i, row in enumerate(payload) if row['localDate'] == '20260323')
+    assert first['ma60'] == pytest.approx(sum(r['closePrice'] for r in payload[position-59:position+1]) / 60)
+    assert calls[0]['params']['startDateTime'] < '202603230000'
+
+
+def test_ma_paths_use_price_axis_and_do_not_clip_or_block_tooltips():
+    rows, _ = charts.normalize_candles([raw('20260921'), raw('20260922')], dt.date(2026, 9, 1), dt.date(2026, 9, 22))
+    # 표시 구간 이전의 가격 영향으로 이평선이 모든 표시 봉보다 높거나 낮을 수 있다.
+    for row in rows:
+        row.update(ma5=110., ma20=200., ma60=50.)
+    root = ET.fromstring(charts.candle_svg(rows))
+    for period, color in charts.MA_STYLES:
+        path = root.find(f'./path[@class="qcd-ma-{period}"]')
+        assert path is not None and path.attrib['stroke'] == color
+        assert path.attrib['pointer-events'] == 'none'
+        for point in path.attrib['d'].split():
+            y = float(point.split(',')[1])
+            assert 14 <= y <= 171
+    assert '60일선 50.0원' in ''.join(root.itertext())
+
+
+def test_short_history_does_not_draw_unavailable_lines():
+    rows, _ = charts.normalize_candles([raw(f'202609{i:02d}') for i in range(1, 7)], dt.date(2026, 9, 1), dt.date(2026, 9, 22))
+    rows = charts.add_moving_averages(rows)
+    svg = charts.candle_svg(rows)
+    assert 'class="qcd-ma-5"' in svg
+    assert 'class="qcd-ma-20"' not in svg
+    assert 'class="qcd-ma-60"' not in svg
+    panel = charts.candle_panel({'rows': rows, 'error': '', 'start': '2026-03-23', 'end': '2026-09-22', 'invalid': 0})
+    assert '종가 단순이평' in panel
+    assert '자료가 부족한 이평선' in panel
+
+
+def test_missing_ma_splits_line_instead_of_connecting_gap():
+    rows, _ = charts.normalize_candles([raw(f'202609{i:02d}') for i in range(1, 4)], dt.date(2026, 9, 1), dt.date(2026, 9, 22))
+    for row, value in zip(rows, [100., None, 110.]):
+        row['ma5'] = value
+    path = ET.fromstring(charts.candle_svg(rows)).find('./path[@class="qcd-ma-5"]')
+    assert path.attrib['d'].count('M') == 2
+    assert 'L' not in path.attrib['d']

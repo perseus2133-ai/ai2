@@ -11,6 +11,7 @@ import requests
 import streamlit as st
 
 KST = ZoneInfo('Asia/Seoul')
+MA_STYLES = ((5, '#F59E0B'), (20, '#2DD4BF'), (60, '#C084FC'))
 
 
 def six_month_window(today):
@@ -53,22 +54,37 @@ def normalize_candles(payload, start, end):
     return sorted(rows.values(), key=lambda row: row['date']), invalid
 
 
+def add_moving_averages(rows):
+    """각 봉까지의 종가 단순이동평균(SMA). N개가 모이기 전에는 값을 만들지 않는다."""
+    closes = [row['close'] for row in rows]
+    out = []
+    for i, row in enumerate(rows):
+        values = {f'ma{period}': (math.fsum(closes[i+1-period:i+1]) / period
+                                if i + 1 >= period else None)
+                  for period, _ in MA_STYLES}
+        out.append(dict(row, **values))
+    return out
+
+
 @st.cache_data(ttl=300, max_entries=512, show_spinner=False)
 def load_candles(code, today_iso):
     """성공/장애 응답 모두 5분 캐시하여 반복 카드와 실패 시 재요청을 제한한다."""
     today = dt.date.fromisoformat(today_iso)
     start, end = six_month_window(today)
+    # 60개 종가를 확보할 여유 구간. 계산 후 화면에서는 원래 6개월만 표시한다.
+    history_start = start - dt.timedelta(days=180)
     result = {'rows': [], 'start': start.isoformat(), 'end': end.isoformat(), 'invalid': 0, 'error': ''}
     if not re.fullmatch(r'[0-9A-Z]{6}', code):
         result['error'] = '종목코드를 확인할 수 없습니다.'
         return result
     try:
         response = requests.get(f'https://api.stock.naver.com/chart/domestic/item/{code}/day',
-                                params={'startDateTime': start.strftime('%Y%m%d') + '0000',
+                                params={'startDateTime': history_start.strftime('%Y%m%d') + '0000',
                                         'endDateTime': end.strftime('%Y%m%d') + '2359'},
                                 headers={'User-Agent': 'Mozilla/5.0'}, timeout=(3, 6))
         response.raise_for_status()
-        result['rows'], result['invalid'] = normalize_candles(response.json(), start, end)
+        rows, result['invalid'] = normalize_candles(response.json(), history_start, end)
+        result['rows'] = [row for row in add_moving_averages(rows) if row['date'] >= start.isoformat()]
     except (requests.RequestException, ValueError, TypeError):
         result['error'] = '일봉을 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.'
     return result
@@ -92,7 +108,10 @@ def candle_svg(rows):
     width, height = 380, 252
     left, right, top, bottom = 62, 370, 14, 171
     volume_top, volume_bottom = 191, 226
-    low, high = min(r['low'] for r in rows), max(r['high'] for r in rows)
+    averages = [value for row in rows for period, _ in MA_STYLES
+                if (value := number(row.get(f'ma{period}'))) is not None and value > 0]
+    low = min([r['low'] for r in rows] + averages)
+    high = max([r['high'] for r in rows] + averages)
     pad = max((high - low) * 0.06, high * 0.01, 1)
     low, high = max(0, low - pad), high + pad
     scale = lambda price: bottom - (price - low) / (high - low) * (bottom - top)
@@ -101,10 +120,11 @@ def candle_svg(rows):
     vmax = max((r['volume'] or 0 for r in rows), default=0)
     elements = [f'<svg class="qcd-candle-svg" viewBox="0 0 {width} {height}" '
                 'style="width:100%;height:auto;display:block;" role="img" '
-                'aria-label="최근 6개월 일봉 및 거래량">',
-                '<title>최근 6개월 일봉 및 거래량</title>',
+                'aria-label="최근 6개월 일봉, 5일·20일·60일 이동평균선 및 거래량">',
+                '<title>최근 6개월 일봉, 5일·20일·60일 이동평균선 및 거래량</title>',
                 '<desc>캔들은 시가 고가 저가 종가, 아래 막대는 거래량입니다. '
-                '빨강은 시가보다 종가 상승, 파랑은 하락입니다.</desc>']
+                '빨강은 시가보다 종가 상승, 파랑은 하락입니다. '
+                '주황은 5일, 청록은 20일, 보라는 60일 종가 단순이동평균입니다.</desc>']
     for i in range(4):
         price = low + (high - low) * i / 3
         y = scale(price)
@@ -121,6 +141,10 @@ def candle_svg(rows):
         volume_label = f"{row['volume']:,.0f}" if row['volume'] is not None else '없음'
         tooltip = html.escape(f"{row['date']} · 시가 {row['open']:,.0f} / 고가 {row['high']:,.0f} / "
                               f"저가 {row['low']:,.0f} / 종가 {row['close']:,.0f}원 · 거래량 {volume_label}주")
+        for period, _ in MA_STYLES:
+            value = number(row.get(f'ma{period}'))
+            label = f'{value:,.1f}원' if value is not None else '자료 부족'
+            tooltip += f' · {period}일선 {label}'
         yo, yc = scale(row['open']), scale(row['close'])
         elements.append(f'<g class="qcd-candle"><title>{tooltip}</title>'
                         f'<rect x="{x-step/2:.2f}" y="{top}" width="{step:.2f}" '
@@ -134,6 +158,21 @@ def candle_svg(rows):
             elements.append(f'<rect x="{x-body/2:.2f}" y="{volume_bottom-vh:.2f}" '
                             f'width="{body:.2f}" height="{vh:.2f}" fill="{color}" opacity="0.6"/>')
         elements.append('</g>')
+    # 봉과 같은 가격 축 사용. 선은 마우스 이벤트를 가리지 않아 봉 툴팁이 유지된다.
+    for period, color in MA_STYLES:
+        commands, connected = [], False
+        for i, row in enumerate(rows):
+            value = number(row.get(f'ma{period}'))
+            if value is None or value <= 0:
+                connected = False
+                continue
+            x = left + step * (i + .5)
+            commands.append(f'{"L" if connected else "M"}{x:.2f},{scale(value):.2f}')
+            connected = True
+        if commands:
+            elements.append(f'<path class="qcd-ma-{period}" d="{" ".join(commands)}" '
+                            f'fill="none" stroke="{color}" stroke-width="1.3" '
+                            'stroke-linejoin="round" stroke-linecap="round" pointer-events="none"/>')
     for i in sorted({round((len(rows)-1) * fraction / 3) for fraction in range(4)}):
         x = left + step * (i + .5)
         anchor = 'start' if i == 0 else 'end' if i == len(rows)-1 else 'middle'
@@ -153,7 +192,12 @@ def candle_panel(data):
         head += (f'<div class="qcd-candle-meta">{latest["date"]} 종가 '
                  f'<b>{latest["close"]:,.0f}원</b> · {len(rows)}개 일봉</div>')
         head += '<div class="qcd-candle-meta"><span style="color:#EF4444;">■ 양봉</span> · <span style="color:#3B82F6;">■ 음봉</span> (시가 대비)</div>'
+        head += ('<div class="qcd-candle-meta" style="display:flex;flex-wrap:wrap;gap:10px;">'
+                 + ''.join(f'<span style="color:{color};">━ {period}일</span>' for period, color in MA_STYLES)
+                 + '<span>종가 단순이평</span></div>')
         body = candle_svg(rows)
+        if any(latest.get(f'ma{period}') is None for period, _ in MA_STYLES):
+            body += '<div class="qcd-candle-meta">자료가 부족한 이평선은 표시하지 않습니다.</div>'
     note = f'{data["start"]} ~ {data["end"]} · 전일까지 · 네이버 차트'
     if data['invalid']:
         note += f' · 비정상 {data["invalid"]}개 제외'
