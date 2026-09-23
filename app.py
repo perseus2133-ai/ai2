@@ -19,6 +19,7 @@ import json
 import io
 import snapshot_io
 from auth_config import configured_password
+from stock_candles import candle_panel, load_candles, prefetch_candles
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from zoneinfo import ZoneInfo
 import warnings
@@ -563,6 +564,23 @@ div[data-testid="stVerticalBlock"] > div:has(div.element-container) {
 }
 .qcd-chart-legend { display:flex; gap:18px; align-items:center; font-size:0.75rem; color:#CBD5E0; margin-bottom:6px; }
 .qcd-chart-legend .dot { display:inline-block; width:10px; height:3px; border-radius:1px; margin-right:6px; vertical-align:middle; }
+.qcd-chart-stack { flex:0 1 440px; min-width:0; width:100%; max-width:460px;
+                   display:flex; flex-direction:column; gap:10px; }
+.qcd-candle-box { margin:0; color:#94A3B8; }
+.qcd-candle-heading { color:#CBD5E0; font-size:0.8rem; font-weight:700; }
+.qcd-candle-meta { font-size:0.68rem; line-height:1.5; margin-top:3px; overflow-wrap:anywhere; }
+.qcd-candle-empty { min-height:160px; display:flex; align-items:center; font-size:0.8rem; }
+.quant-card-dark:hover .qcd-candle-box { color:#475569; }
+.quant-card-dark:hover .qcd-candle-heading { color:#1D3557; }
+.qcd-data-column { flex:1 1 320px; min-width:0; display:flex; flex-direction:column; gap:10px; }
+.qcd-data-column .evidence-scroll { max-width:100%; overflow-x:auto; padding-bottom:5px; }
+.qcd-data-column .evidence-scroll > div { min-width:560px; }
+.qcd-data-column .qcd-tech-box { flex-wrap:wrap; min-width:0; }
+.qcd-data-column .qcd-tech-left { flex:1 1 140px; min-width:0; }
+.qcd-data-column .qcd-tech-mid { flex:1 1 150px; min-width:0; }
+.qcd-data-column .qcd-tech-right { flex:1 1 100%; min-width:0; border-left:none;
+    border-top:1px solid rgba(74,85,104,0.6); padding:10px 0 0; align-items:flex-start; text-align:left; }
+.qcd-data-column .qcd-verdict-reason { text-align:left; }
 
 .qcd-pill {
     background: rgba(17, 24, 39, 0.55);
@@ -2447,7 +2465,7 @@ def check_password():
 # ============================================================
 # 메인 UI
 # ============================================================
-def render_stock_card(row, rank):
+def render_stock_card(row, rank, candle_data=None):
     code = row.get('종목코드','')
     name = row.get('종목명','')
     market = row.get('시장','')
@@ -3079,8 +3097,11 @@ def render_stock_card(row, rank):
     )
 
     # ── 차트 박스 (성장률 라인차트) ────────────────────────────
+    if candle_data is None:
+        candle_data = load_candles(code_str, now_kst().date().isoformat())
+    candles_html = candle_panel(candle_data)
     chart_html = (
-        f'<div class="qcd-chart-box" style="margin:0;height:100%;display:flex;flex-direction:column;">'
+        f'<div class="qcd-chart-box" style="margin:0;display:flex;flex-direction:column;">'
         f'<div class="qcd-chart-legend" style="font-size:0.68rem;gap:12px;margin-bottom:2px;">'
         f'<span><span class="dot" style="background:#34D399;"></span>매출 성장률</span>'
         f'<span><span class="dot" style="background:#A78BFA;"></span>영업이익 성장률</span>'
@@ -3092,11 +3113,12 @@ def render_stock_card(row, rank):
     # ── 좌(재무소스+보조지표) / 우(그래프) 2열 그리드 ──────────
     main_grid = (
         f'<div style="display:flex;gap:12px;margin:10px 0;flex-wrap:wrap;align-items:stretch;">'
-        f'<div style="flex:1 1 320px;min-width:280px;display:flex;flex-direction:column;gap:10px;">'
+        f'<div class="qcd-data-column">'
         f'{evidence_html}'
         f'{tech_html}'
         f'</div>'
-        f'<div style="flex:0 1 440px;min-width:300px;max-width:460px;">'
+        f'<div class="qcd-chart-stack">'
+        f'{candles_html}'
         f'{chart_html}'
         f'</div>'
         f'</div>'
@@ -3599,8 +3621,9 @@ def main():
                 if st.button("다음 ▶", disabled=st.session_state['page']>=total_pages): st.session_state['page']+=1; st.rerun()
 
             si = (st.session_state['page']-1)*page_size
+            chart_data = prefetch_candles(df_s.iloc[si:si+page_size]['종목코드'])
             for rank, (_, row) in enumerate(df_s.iloc[si:si+page_size].iterrows(), start=si+1):
-                render_stock_card(row, rank)
+                render_stock_card(row, rank, chart_data.get(str(row['종목코드']).zfill(6)))
 
         # ────────────────────────────────────────────────────────
         # 컨센 상향 탭 — 30일 전 대비 컨센서스가 올라간 종목만 모아서
@@ -3659,8 +3682,9 @@ def main():
                         st.session_state['rev_page'] += 1; st.rerun()
 
                 rsi_ = (st.session_state['rev_page'] - 1) * rp_size
+                chart_data = prefetch_candles(df_rev.iloc[rsi_:rsi_ + rp_size]['종목코드'])
                 for rank, (_, row) in enumerate(df_rev.iloc[rsi_:rsi_ + rp_size].iterrows(), start=rsi_ + 1):
-                    render_stock_card(row, rank)
+                    render_stock_card(row, rank, chart_data.get(str(row['종목코드']).zfill(6)))
 
         # ────────────────────────────────────────────────────────
         # AI 3선 탭 — 매일 크롤이 종합 점수로 선정한 3종목 + 누적 수익률
@@ -3690,6 +3714,7 @@ def main():
             else:
                 latest_d = max(picks_hist.keys())
                 latest_picks = picks_hist[latest_d] or []
+                chart_data = prefetch_candles([p['code'] for p in latest_picks])
 
                 # 현재가 맵 (수익률 계산용)
                 _pm = all_df.copy()
@@ -3750,7 +3775,7 @@ def main():
                                 if '거래량배수' not in crow.columns:
                                     crow['거래량배수'] = np.nan
                                 crow = apply_peer_multiples_with_universe(crow, all_df)
-                                render_stock_card(crow.iloc[0], i)
+                                render_stock_card(crow.iloc[0], i, chart_data.get(str(p['code']).zfill(6)))
                             except Exception:
                                 pass
 
@@ -3883,10 +3908,11 @@ def main():
                     # 너무 많으면 상위 N개만 (안전장치)
                     MAX_CARDS = 30
                     show_df = hits.head(MAX_CARDS)
+                    chart_data = prefetch_candles(show_df['종목코드'])
                     if len(hits) > MAX_CARDS:
                         st.info(f"검색 결과가 {len(hits)}개로 많아 상위 {MAX_CARDS}개만 카드로 표시합니다. 더 정확한 검색어를 입력하세요.")
                     for rank, (_, row) in enumerate(show_df.iterrows(), start=1):
-                        render_stock_card(row, rank)
+                        render_stock_card(row, rank, chart_data.get(str(row['종목코드']).zfill(6)))
 
         # ════════════════════════════════════════════════════════
         # 🎯 판정별 분류 — 종합판정으로 나눠 보고, 수급으로 줄세운다
@@ -4102,10 +4128,11 @@ def main():
                     ind_name = irow['업종']
                     avg_score = irow['평균_성장률']
                     comp_df = df[df['업종'] == ind_name].sort_values('영업이익_최대성장률', ascending=False)
+                    chart_data = prefetch_candles(comp_df.head(10)['종목코드'])
                     with st.expander(f"🏅 {i+1}위: {ind_name} (평균 영업이익 성장률: {avg_score:,.1f}% / {len(comp_df)}종목)"):
                         st.markdown("<div style='margin-bottom:8px;font-size:0.9rem;color:#A0AEC0;'>상위 10개 종목만 표시됩니다.</div>", unsafe_allow_html=True)
                         for rank, (_, row) in enumerate(comp_df.head(10).iterrows(), start=1):
-                            render_stock_card(row, rank)
+                            render_stock_card(row, rank, chart_data.get(str(row['종목코드']).zfill(6)))
             else:
                 st.warning("데이터에 '업종' 정보가 포함되어 있지 않습니다.")
 
