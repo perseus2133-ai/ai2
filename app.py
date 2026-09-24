@@ -386,6 +386,9 @@ html, body, [data-testid="stAppViewContainer"] {
     color: #FFFFFF !important;
 }
 
+/* 화면 상단의 빈 공간을 줄인다. */
+.block-container { padding-top: 0.3rem !important; }
+
 [data-testid="stSidebar"] > div:first-child {
     background-color: #1A1C24 !important;
 }
@@ -415,8 +418,8 @@ div[data-testid="stVerticalBlock"] > div:has(div.element-container) {
     transition: all 0.2s ease-in-out;
 }
 
-.hero-header { border-bottom: 1px solid #4C566A; padding-bottom: 16px; margin-bottom: 24px; text-align: left; background: transparent !important; border-radius: 0; padding: 0 0 16px 0; }
-.hero-header p { color: #A0AEC0; font-size: 1.0rem; margin: 0; font-family: 'JetBrains Mono', monospace; }
+.hero-header { border-bottom: 1px solid #4C566A; margin-bottom: 12px; text-align: left; background: transparent !important; border-radius: 0; padding: 0 0 10px 0; }
+.hero-header p { color: #A0AEC0; font-size: 0.88rem; margin: 0; font-family: 'JetBrains Mono', monospace; }
 
 .quant-card-light {
     background-color: #FFFFFF;
@@ -713,14 +716,14 @@ div[data-testid="stVerticalBlock"] > div:has(div.element-container) {
 
 .rainbow-title {
     font-weight: 900;
-    font-size: 2.4rem;
+    font-size: 2.25rem;
     background: linear-gradient(to right, #62efff, #ffb3fd, #ffeead, #62efff);
     background-size: 400% 400%;
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     animation: rainbow-text 5s ease infinite;
     display: flex; align-items: center; gap: 8px;
-    margin: 0 0 6px 0;
+    margin: 0 0 2px 0;
 }
 
 .rainbow-score {
@@ -731,9 +734,23 @@ div[data-testid="stVerticalBlock"] > div:has(div.element-container) {
     animation: rainbow-text 5s ease infinite;
 }
 
-.metric-card { text-align: center; background: rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 15px; border: 1px solid #4C566A; }
-.metric-label { color: #A0AEC0; font-size: 0.85rem; margin-bottom: 4px; }
-.metric-value { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 1.5rem; color: #FFFFFF !important; }
+.metric-card { text-align: center; background: rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 8px 8px; border: 1px solid #4C566A; }
+.metric-label { color: #B9C7D8; font-size: 0.72rem; line-height: 1.2; margin-bottom: 2px; }
+.metric-label:last-child { margin: 2px 0 0; }
+.metric-value { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 1.2rem; line-height: 1.2; color: #FFFFFF !important; }
+.metric-value.metric-time { font-size: 1.05rem; }
+
+/* Streamlit의 tablist 부모는 높이가 탭 행만큼이므로 그 부모를 고정한다. */
+[data-testid="stTabs"] div:has(> [role="tablist"]) {
+    position: sticky !important;
+    top: 0;
+    z-index: 100;
+}
+[data-testid="stTabs"] [role="tablist"] {
+    background: #263647 !important;
+    border-bottom: 1px solid #66788B;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.22);
+}
 .growth-positive { color: #FF6B6B; font-weight: 600; font-family: 'JetBrains Mono', monospace; }
 .growth-negative { color: #4A90E2; font-weight: 600; font-family: 'JetBrains Mono', monospace; }
 .growth-mega { color: #2EAA7B; font-weight: 800; font-family: 'JetBrains Mono', monospace; }
@@ -763,26 +780,30 @@ div.stButton > button:hover, div.stDownloadButton > button:hover, button[kind="s
 }
 
 div[data-baseweb="tab-list"] {
-    gap: 12px;
+    gap: 8px;
 }
 button[data-baseweb="tab"] {
     background: linear-gradient(135deg, #2D3139, #3E4A59) !important;
     border: 1px solid #4C566A !important;
     border-radius: 10px !important;
-    padding: 12px 24px !important;
+    padding: 9px 16px !important;
     box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3), 0 2px 4px -2px rgba(0,0,0,0.3) !important;
     transition: all 0.3s ease !important;
     margin-right: 5px;
 }
 button[data-baseweb="tab"] > div[data-testid="stMarkdownContainer"] > p {
-    color: #A0AEC0 !important;
+    color: #EAF2FC !important;
     font-weight: 700 !important;
-    font-size: 1.2rem !important;
+    font-size: 1rem !important;
 }
 button[data-baseweb="tab"]:hover {
     transform: translateY(-3px);
     box-shadow: 0 10px 15px -3px rgba(0,0,0,0.4) !important;
     border-color: #A0AEC0 !important;
+}
+button[data-baseweb="tab"]:hover > div[data-testid="stMarkdownContainer"] > p,
+button[data-baseweb="tab"]:focus-visible > div[data-testid="stMarkdownContainer"] > p {
+    color: #FFFFFF !important;
 }
 button[data-baseweb="tab"][aria-selected="true"] {
     background: linear-gradient(135deg, #1D3557, #457B9D) !important;
@@ -790,16 +811,16 @@ button[data-baseweb="tab"][aria-selected="true"] {
     box-shadow: inset 0 2px 4px rgba(0,0,0,0.1), 0 6px 12px rgba(98, 239, 255, 0.2) !important;
 }
 button[data-baseweb="tab"][aria-selected="true"] > div[data-testid="stMarkdownContainer"] > p {
-    color: #FFFFFF !important;
+    color: #62EFFF !important;
     font-weight: 900 !important;
-    font-size: 1.3rem !important;
+    font-size: 1.02rem !important;
 }
 
 .stProgress > div > div { background: #1D3557 !important; }
 
 .cache-info { background: #FFFFFF; border-left: 3px solid #1D3557; border-radius: 4px; padding: 10px 14px; margin: 8px 0; color: #6C757D; font-size: 0.8rem; text-align: left; font-family: 'JetBrains Mono', monospace; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
 .cache-none { background: #FFFFFF; border-left: 3px solid #E74C3C; border-radius: 4px; padding: 10px 14px; margin: 8px 0; color: #E74C3C; font-size: 0.8rem; text-align: left; font-family: 'JetBrains Mono', monospace; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
-.divider { border: none; border-top: 1px solid #E9ECEF; margin: 24px 0; }
+.divider { border: none; border-top: 1px solid #4C566A; margin: 12px 0 !important; }
 
 .stMarkdown { margin-bottom: 0px !important; }
 
@@ -851,7 +872,7 @@ header[data-testid="stHeader"] [data-testid="stExpandSidebarButton"] { pointer-e
 @media (max-width: 768px) {
     /* 본문 좌우 여백 최소화 — 좁은 화면 폭을 최대한 활용 */
     .block-container { padding-left: 0.7rem !important; padding-right: 0.7rem !important;
-                       padding-top: 2.2rem !important; }
+                       padding-top: 1.2rem !important; }
 
     .quant-card-light { padding: 12px 10px; }
     .hero-header { padding-bottom: 12px; }
@@ -878,9 +899,10 @@ header[data-testid="stHeader"] [data-testid="stExpandSidebarButton"] { pointer-e
     button[role="tab"][aria-selected="true"] * { font-size: 0.88rem !important; }
 
     /* 상단 요약 메트릭 카드 — 4개가 좁게 들어가도 숫자가 잘리지 않게 */
-    .metric-card { padding: 9px 5px; }
+    .metric-card { padding: 7px 5px; }
     .metric-label { font-size: 0.62rem; line-height: 1.25; }
     .metric-value { font-size: 1.0rem; }
+    .metric-value.metric-time { font-size: 0.76rem; }
 
     /* 카드 전체 여백/헤더 압축 */
     .quant-card-dark { padding: 13px 12px; border-radius: 12px; margin-bottom: 12px; }
@@ -3554,7 +3576,7 @@ def main():
         with col4:
             ts_kst = cache_ts.astimezone(KST) if cache_ts.tzinfo else cache_ts.replace(tzinfo=KST)
             ts_str = ts_kst.strftime('%m/%d %H:%M KST')
-            st.markdown(f'<div class="metric-card"><div class="metric-label">캐시 데이터</div><div class="metric-value" style="font-size:1.3rem;">{ts_str}</div><div class="metric-label">수집 시점</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-card"><div class="metric-label">캐시 데이터</div><div class="metric-value metric-time">{ts_str}</div><div class="metric-label">수집 시점</div></div>', unsafe_allow_html=True)
 
         st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
