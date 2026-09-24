@@ -181,9 +181,18 @@ def candle_svg(rows):
     return ''.join(elements) + '</svg>'
 
 
-def candle_panel(data):
+def naver_chart_url(code):
+    """Npay 증권의 종목별 확대 차트 페이지."""
+    code = str(code).zfill(6)
+    if not re.fullmatch(r'[0-9A-Z]{6}', code):
+        raise ValueError('종목코드가 올바르지 않습니다.')
+    return f'https://m.stock.naver.com/fchart/domestic/stock/{code}'
+
+
+def candle_panel(data, code=None):
     rows = data['rows']
-    head = '<div class="qcd-candle-heading">최근 6개월 · 일봉</div>'
+    open_hint = ' <span class="qcd-chart-open">↗ 네이버 차트</span>' if code is not None else ''
+    head = f'<div class="qcd-candle-heading">최근 6개월 · 일봉{open_hint}</div>'
     if not rows:
         message = html.escape(data['error'] or '해당 기간에 표시할 일봉 데이터가 없습니다.')
         body = f'<div class="qcd-candle-empty">{message}</div>'
@@ -201,5 +210,11 @@ def candle_panel(data):
     note = f'{data["start"]} ~ {data["end"]} · 전일까지 · 네이버 차트'
     if data['invalid']:
         note += f' · 비정상 {data["invalid"]}개 제외'
-    return (f'<div class="qcd-chart-box qcd-candle-box">{head}{body}'
-            f'<div class="qcd-candle-meta">{html.escape(note)}</div></div>')
+    panel = (f'<div class="qcd-chart-box qcd-candle-box">{head}{body}'
+             f'<div class="qcd-candle-meta">{html.escape(note)}</div></div>')
+    if code is None:
+        return panel
+    url = naver_chart_url(code)
+    return (f'<a href="{url}" target="_blank" rel="noopener noreferrer" '
+            f'class="qcd-chart-link" title="네이버 종목 차트 새 창으로 보기" '
+            f'aria-label="네이버 종목 차트 새 창으로 보기">{panel}</a>')

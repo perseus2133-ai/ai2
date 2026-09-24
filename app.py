@@ -122,16 +122,11 @@ def is_mobile() -> bool:
 
 
 def naver_item_url(code) -> str:
-    """네이버 증권 종목 페이지.
-
-    PC는 일반(데스크톱) 화면, 폰은 모바일 화면으로 보낸다.
-    폰에서 데스크톱 URL을 열면 리다이렉트가 실패하거나 빈 화면이 뜨는
-    경우가 있어 기기별로 분기한다.
-    """
+    """PC와 휴대전화에서 공통으로 열리는 Npay 증권 종목 페이지."""
     c = str(code).zfill(6)
-    if is_mobile():
-        return f'https://m.stock.naver.com/domestic/stock/{c}/total'
-    return f'https://finance.naver.com/item/main.naver?code={c}'
+    if not re.fullmatch(r'[0-9A-Z]{6}', c):
+        return ''
+    return f'https://m.stock.naver.com/domestic/stock/{c}/total'
 
 
 @st.cache_data(ttl=3600)
@@ -581,7 +576,13 @@ div[data-testid="stVerticalBlock"] > div:has(div.element-container) {
 .qcd-chart-stack { flex:0 1 440px; min-width:0; width:100%; max-width:460px;
                    display:flex; flex-direction:column; gap:10px; }
 .qcd-candle-box { margin:0; color:#94A3B8; }
+.qcd-chart-link { display:block; color:inherit !important; text-decoration:none !important; cursor:pointer; }
+.qcd-chart-link:hover .qcd-candle-box, .qcd-chart-link:focus-visible .qcd-candle-box {
+    border-color:#62EFFF; box-shadow:0 0 0 2px rgba(98,239,255,0.25);
+}
+.qcd-chart-link:focus-visible { outline:2px solid #62EFFF; outline-offset:3px; border-radius:10px; }
 .qcd-candle-heading { color:#CBD5E0; font-size:0.8rem; font-weight:700; }
+.qcd-chart-open { float:right; color:#62EFFF; font-size:0.72rem; }
 .qcd-candle-meta { font-size:0.68rem; line-height:1.5; margin-top:3px; overflow-wrap:anywhere; }
 .qcd-candle-empty { min-height:160px; display:flex; align-items:center; font-size:0.8rem; }
 .quant-card-dark:hover .qcd-candle-box { color:#475569; }
@@ -3134,7 +3135,7 @@ def render_stock_card(row, rank, candle_data=None):
     # ── 차트 박스 (성장률 라인차트) ────────────────────────────
     if candle_data is None:
         candle_data = load_candles(code_str, now_kst().date().isoformat())
-    candles_html = candle_panel(candle_data)
+    candles_html = candle_panel(candle_data, code_str)
     chart_html = (
         f'<div class="qcd-chart-box" style="margin:0;display:flex;flex-direction:column;">'
         f'<div class="qcd-chart-legend" style="font-size:0.68rem;gap:12px;margin-bottom:2px;">'

@@ -110,6 +110,16 @@ def test_panel_empty_and_short_listing_are_honest():
     assert '1개 일봉' in charts.candle_panel(data)
 
 
+def test_candle_opens_matching_naver_chart_in_new_context():
+    data = {'rows': [], 'error': '', 'start': '2026-03-23', 'end': '2026-09-22', 'invalid': 0}
+    panel = charts.candle_panel(data, '005930')
+    assert 'href="https://m.stock.naver.com/fchart/domestic/stock/005930"' in panel
+    assert 'target="_blank"' in panel
+    assert 'class="qcd-chart-link"' in panel
+    with pytest.raises(ValueError):
+        charts.naver_chart_url('" onclick="alert(1)')
+
+
 def test_card_integration_has_separate_candles_above_growth(monkeypatch):
     from pathlib import Path
     from streamlit.testing.v1 import AppTest
@@ -132,6 +142,8 @@ def test_card_integration_has_separate_candles_above_growth(monkeypatch):
         assert card.index('qcd-candle-box') < card.index('매출 성장률')
         assert '영업이익 성장률' in card
         assert '최근 6개월 · 일봉' in card
+        assert 'qcd-chart-link' in card
+        assert 'target="_blank"' in card
 
 
 @pytest.mark.parametrize('period', [5, 20, 60])
