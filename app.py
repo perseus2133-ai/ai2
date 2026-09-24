@@ -20,6 +20,7 @@ import io
 import snapshot_io
 from auth_config import configured_password
 from stock_candles import candle_panel, load_candles, prefetch_candles
+import watchlist_ui
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from zoneinfo import ZoneInfo
 import warnings
@@ -2466,6 +2467,7 @@ def check_password():
 # 메인 UI
 # ============================================================
 def render_stock_card(row, rank, candle_data=None):
+    watchlist_ui.card_button(row, candle_data, now_kst().date().isoformat())
     code = row.get('종목코드','')
     name = row.get('종목명','')
     market = row.get('시장','')
@@ -3214,6 +3216,7 @@ def inject_scroll_top_button():
 def main():
     if not check_password():
         return
+    watchlist_ui.initialize(BASE_DIR)
 
     # ⚠️ inject_scroll_top_button()은 여기서 호출하지 않는다.
     #    components.html(iframe)을 사이드바보다 먼저 렌더하면 사이드바가
@@ -3560,13 +3563,22 @@ def main():
 
         # 탭 (5개)
         (tab_cards, tab_rev, tab_ai, tab_verdict, tab_search, tab_lead,
-         tab_sector, tab_table, tab_hist, tab_paper) = st.tabs([
+         tab_sector, tab_table, tab_hist, tab_paper, tab_watch) = st.tabs([
             "📋 종목 카드 뷰", "🚀 컨센 상향", "🤖 AI 3선",
             "🎯 판정별 분류", "🔍 개별종목확인",
             "🔥 주도업종 저평가",
             "🏢 업종별 테마순위", "📊 데이터 테이블", "📅 누적 기록",
             "💰 모의투자",
+            "⭐ 관심종목",
         ])
+
+        st.session_state['_watch_data_as_of'] = cache_ts.isoformat()
+        with tab_watch:
+            def prepare_watch(rows):
+                rows = compute_card_fields(rows)
+                rows['업종평균PER'] = rows['업종'].map(get_sector_per_map()) if '업종' in rows else np.nan
+                return apply_peer_multiples_with_universe(rows, all_df)
+            watchlist_ui.render_watchlist(all_df, render_stock_card, prepare_watch, cache_ts.isoformat())
 
         with tab_cards:
             if df.empty:
