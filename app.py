@@ -761,6 +761,10 @@ div[data-testid="stVerticalBlock"] > div:has(div.element-container) {
     position: sticky !important;
     top: 0;
     z-index: 100;
+    display: flex !important;
+    flex-wrap: wrap !important;
+    overflow: visible !important;
+    height: auto !important;
     background: #263647 !important;
     border-bottom: 1px solid #66788B;
     box-shadow: 0 3px 10px rgba(0, 0, 0, 0.22);
@@ -794,9 +798,11 @@ div.stButton > button:hover, div.stDownloadButton > button:hover, button[kind="s
 }
 
 [data-testid="stTabs"] [role="tablist"] {
-    gap: 8px;
+    gap: 8px 5px;
 }
 [data-testid="stTabs"] [role="tab"] {
+    flex: 0 0 auto !important;
+    white-space: nowrap;
     color: #EAF2FC !important;
     background: linear-gradient(135deg, #2D3139, #3E4A59) !important;
     border: 1px solid #4C566A !important;
@@ -878,7 +884,7 @@ header[data-testid="stHeader"] [data-testid="stExpandSidebarButton"] { pointer-e
    📱 모바일 최적화 (≤768px) — 데스크톱 레이아웃은 그대로 두고
    좁은 화면에서만 재배치한다.
    해결 대상(375px 실측):
-     ① 탭 7개가 1469px로 넘쳐 뒤쪽 탭 접근 불가 → 가로 스크롤 + 압축
+     ① 탭이 화면 밖으로 넘침 → 여러 줄로 배치하고 크기 압축
      ② 보조지표 박스가 3단 가로(row)라 '종합 판정'이 화면 밖(574px)
         → 세로(column) 스택으로 전환
      ③ 카드 여백/폰트가 커서 정보 밀도 낮음 → 압축
@@ -896,15 +902,12 @@ header[data-testid="stHeader"] [data-testid="stExpandSidebarButton"] { pointer-e
                           -webkit-overflow-scrolling: touch; }
     div.evidence-scroll > div { min-width: 480px; }
 
-    /* ① 탭 — 줄바꿈 대신 가로 스크롤(스와이프), 크기 압축 */
-    div[data-baseweb="tab-list"], [data-testid="stTabs"] [role="tablist"] {
-        overflow-x: auto !important; flex-wrap: nowrap !important; gap: 5px !important;
-        scrollbar-width: none; -webkit-overflow-scrolling: touch;
-    }
-    div[data-baseweb="tab-list"]::-webkit-scrollbar,
-    [data-testid="stTabs"] [role="tablist"]::-webkit-scrollbar { display: none; }
+    /* ① 탭 — 좁은 화면에서도 모든 항목이 보이도록 여러 줄로 배치 */
+    [data-testid="stTabs"] div:has(> [role="tablist"]):not(:has([role="tabpanel"])),
+    [data-testid="stTabs"] [role="tablist"] { position: static !important; }
+    [data-testid="stTabs"] [role="tablist"] { gap: 5px !important; }
     [data-testid="stTabs"] [role="tab"] {
-        padding: 8px 12px !important; flex: 0 0 auto !important; white-space: nowrap;
+        padding: 8px 12px !important;
         margin-right: 0 !important;
     }
     [data-testid="stTabs"] [role="tab"] * { font-size: 0.85rem !important; }
