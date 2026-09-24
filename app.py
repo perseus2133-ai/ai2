@@ -155,8 +155,9 @@ def profile_of(code):
     return str(p.get('summary') or '').strip()
 
 
-def get_cache_info():
-    cache = load_cache()
+def get_cache_info(cache=None):
+    if cache is None:
+        cache = load_cache()
     if cache is None:
         return None
     return {
@@ -347,7 +348,16 @@ def calc_consensus_revision(stock_code, current_row):
 
 
 def build_history_excel():
-    """누적 기록을 엑셀 BytesIO로 변환 (4개 시트)"""
+    """기록 파일이 바뀔 때만 누적 기록 Excel을 다시 만든다."""
+    history_file = os.path.join(HISTORY_DIR, 'accumulation.json')
+    if not os.path.exists(history_file):
+        return None
+    return _build_history_excel_cached(os.stat(history_file).st_mtime_ns)
+
+
+@st.cache_data(show_spinner=False)
+def _build_history_excel_cached(history_version):
+    """누적 기록을 엑셀 bytes로 변환 (4개 시트). 파일 수정 시각으로 캐시 무효화."""
     history = load_history()
     if not history:
         return None
@@ -3256,7 +3266,8 @@ def main():
     </div>
     """, unsafe_allow_html=True)
 
-    cache_info = get_cache_info()
+    cache = load_cache()
+    cache_info = get_cache_info(cache)
 
     with st.sidebar:
         st.markdown("## ⚙️ 스크리닝 설정")
@@ -3333,7 +3344,6 @@ def main():
     #  차단되어 27/28E를 받지 못하고 캐시만 오염시키므로, 수집은
     #  ① GitHub Actions 자동 크롤 ② 로컬 PC의 27_28_갱신.bat 로만 수행)
 
-    cache = load_cache()
     if cache is not None:
         all_df = cache['data']
         cache_ts = cache['timestamp']
@@ -3584,7 +3594,16 @@ def main():
         if df.empty:
             st.warning("⚠️ 조건에 부합하는 종목이 없습니다. 사이드바에서 기준을 완화하거나, '개별종목확인' 탭에서 종목명으로 직접 검색하세요.")
 
-        # 탭 (5개)
+        # 숨겨진 탭의 위젯은 렌더링되지 않으므로 값을 세션 상태에 유지한다.
+        for widget_key in (
+            'card_sort', 'card_sort_order', 'rev_tab_thresh', 'search_q',
+            'vd_scope', 'vd_side', 'vd_pick', 'vd_sort', 'vd_both',
+            'lead_sector', 'sector_choice', 'watch_search', 'watch_page',
+        ):
+            if widget_key in st.session_state:
+                st.session_state[widget_key] = st.session_state[widget_key]
+
+        # 탭 전환 시 선택된 탭만 계산하고 렌더링한다.
         (tab_cards, tab_rev, tab_ai, tab_verdict, tab_search, tab_lead,
          tab_sector, tab_table, tab_hist, tab_paper, tab_watch) = st.tabs([
             "📋 종목 카드 뷰", "🚀 컨센 상향", "🤖 AI 3선",
@@ -3593,774 +3612,796 @@ def main():
             "🏢 업종별 테마순위", "📊 데이터 테이블", "📅 누적 기록",
             "💰 모의투자",
             "⭐ 관심종목",
-        ])
+        ], key="main_tabs", on_change="rerun")
 
         st.session_state['_watch_data_as_of'] = cache_ts.isoformat()
-        with tab_watch:
-            def prepare_watch(rows):
-                rows = compute_card_fields(rows)
-                rows['업종평균PER'] = rows['업종'].map(get_sector_per_map()) if '업종' in rows else np.nan
-                return apply_peer_multiples_with_universe(rows, all_df)
-            watchlist_ui.render_watchlist(all_df, render_stock_card, prepare_watch, cache_ts.isoformat())
+        if tab_watch.open:
+            with tab_watch:
+                def prepare_watch(rows):
+                    rows = compute_card_fields(rows)
+                    rows['업종평균PER'] = rows['업종'].map(get_sector_per_map()) if '업종' in rows else np.nan
+                    return apply_peer_multiples_with_universe(rows, all_df)
+                watchlist_ui.render_watchlist(all_df, render_stock_card, prepare_watch, cache_ts.isoformat())
 
-        with tab_cards:
-            if df.empty:
-                st.info("필터 조건을 완화하거나 옆 탭의 '개별종목확인'을 사용하세요.")
-            else:
-                st.markdown(f'<div style="color:#FFFFFF; font-size:0.9rem; font-family:\'JetBrains Mono\', monospace; margin-bottom:10px;">> 스크리너 결과: {len(df)}개 발굴</div>', unsafe_allow_html=True)
-            scol1, scol2 = st.columns([2, 1])
-            with scol1:
-                # 기본 정렬 = 매출+영업이익 합산점수.
-                # (직전 기본값이던 '미래 가시성'은 매출 CAGR만 보므로 영업이익
-                #  개선이 큰 종목이 뒤로 밀렸다 — 이수페타시스 27위 사례)
-                sort_options = {
-                    "📊 매출+영업이익 성장 (CAGR 합산)": "매출영익_합산성장",
-                    "🌟 미래 가시성 핵심성장 (1~3순위)": "가시성기준_정렬점수",
-                    "🚀 컨센서스 상향률 (Revision Score)": "Revision_Score",
-                    "🌐 업종 모멘텀 (업종 Revision 중앙값)": "업종_Revision_중앙값",
-                    "💎 영업이익 규모 (2026+)": "영업이익_26이후_최대",
-                    "📉 매출+영업이익 1년최대 합산 (기저효과 주의)": "종합성장점수",
-                    "🎯 2028E 괴리율 (저평가 우선)": "괴리율_2028E",
-                    "💰 매출 1년최대성장률 (단기)": "매출액_최대성장률",
-                    "📈 영업이익 1년최대성장률 (단기)": "영업이익_최대성장률",
-                    "🔥 거래량배수 (20일평균 대비)": "거래량배수",
-                    "🔥 거래량순": "Recent_Volume",
-                    "💹 Forward PER (낮을수록)": "Forward_PER",
-                    "⭐ PEG (낮을수록)": "PEG",
-                    "🏢 시가총액순": "시가총액",
-                    "💵 현재가순": "현재가",
-                }
-                sort_label = st.selectbox("정렬 기준", list(sort_options.keys()), index=0, label_visibility="collapsed")
-                sort_col = sort_options[sort_label]
-            with scol2:
-                # Forward PER, PEG는 낮을수록 좋으므로 기본 오름차순
-                asc_default = sort_col in ('Forward_PER', 'PEG')
-                sort_order = st.selectbox("순서", ["오름차순", "내림차순"] if asc_default else ["내림차순", "오름차순"], index=0, label_visibility="collapsed")
-            if sort_col in df.columns:
-                df_s = df.sort_values(sort_col, ascending=(sort_order == "오름차순"),
-                                      na_position='last').reset_index(drop=True)
-            else:   # 빈 결과이거나 옛 캐시라 해당 정렬 컬럼이 없는 경우
-                df_s = df.reset_index(drop=True)
+        if tab_cards.open:
+            with tab_cards:
+                if df.empty:
+                    st.info("필터 조건을 완화하거나 옆 탭의 '개별종목확인'을 사용하세요.")
+                else:
+                    st.markdown(f'<div style="color:#FFFFFF; font-size:0.9rem; font-family:\'JetBrains Mono\', monospace; margin-bottom:10px;">> 스크리너 결과: {len(df)}개 발굴</div>', unsafe_allow_html=True)
+                scol1, scol2 = st.columns([2, 1])
+                with scol1:
+                    # 기본 정렬 = 매출+영업이익 합산점수.
+                    # (직전 기본값이던 '미래 가시성'은 매출 CAGR만 보므로 영업이익
+                    #  개선이 큰 종목이 뒤로 밀렸다 — 이수페타시스 27위 사례)
+                    sort_options = {
+                        "📊 매출+영업이익 성장 (CAGR 합산)": "매출영익_합산성장",
+                        "🌟 미래 가시성 핵심성장 (1~3순위)": "가시성기준_정렬점수",
+                        "🚀 컨센서스 상향률 (Revision Score)": "Revision_Score",
+                        "🌐 업종 모멘텀 (업종 Revision 중앙값)": "업종_Revision_중앙값",
+                        "💎 영업이익 규모 (2026+)": "영업이익_26이후_최대",
+                        "📉 매출+영업이익 1년최대 합산 (기저효과 주의)": "종합성장점수",
+                        "🎯 2028E 괴리율 (저평가 우선)": "괴리율_2028E",
+                        "💰 매출 1년최대성장률 (단기)": "매출액_최대성장률",
+                        "📈 영업이익 1년최대성장률 (단기)": "영업이익_최대성장률",
+                        "🔥 거래량배수 (20일평균 대비)": "거래량배수",
+                        "🔥 거래량순": "Recent_Volume",
+                        "💹 Forward PER (낮을수록)": "Forward_PER",
+                        "⭐ PEG (낮을수록)": "PEG",
+                        "🏢 시가총액순": "시가총액",
+                        "💵 현재가순": "현재가",
+                    }
+                    sort_label = st.selectbox("정렬 기준", list(sort_options.keys()), index=0, label_visibility="collapsed", key="card_sort")
+                    sort_col = sort_options[sort_label]
+                with scol2:
+                    # Forward PER, PEG는 낮을수록 좋으므로 기본 오름차순
+                    asc_default = sort_col in ('Forward_PER', 'PEG')
+                    sort_order = st.selectbox("순서", ["오름차순", "내림차순"] if asc_default else ["내림차순", "오름차순"], index=0, label_visibility="collapsed", key="card_sort_order")
+                if sort_col in df.columns:
+                    df_s = df.sort_values(sort_col, ascending=(sort_order == "오름차순"),
+                                          na_position='last').reset_index(drop=True)
+                else:   # 빈 결과이거나 옛 캐시라 해당 정렬 컬럼이 없는 경우
+                    df_s = df.reset_index(drop=True)
 
-            page_size = 20
-            total_pages = max(1, (len(df_s)-1)//page_size+1)
-            if 'page' not in st.session_state: st.session_state['page'] = 1
-            if st.session_state['page'] > total_pages: st.session_state['page'] = 1
+                page_size = 20
+                total_pages = max(1, (len(df_s)-1)//page_size+1)
+                if 'page' not in st.session_state: st.session_state['page'] = 1
+                if st.session_state['page'] > total_pages: st.session_state['page'] = 1
 
-            pc1, pc2, pc3 = st.columns([1,2,1])
-            with pc1:
-                if st.button("◀ 이전", disabled=st.session_state['page']<=1): st.session_state['page']-=1; st.rerun()
-            with pc2:
-                st.markdown(f"<div style='text-align:center;color:#FFFFFF;padding:8px;'>페이지 {st.session_state['page']} / {total_pages}</div>", unsafe_allow_html=True)
-            with pc3:
-                if st.button("다음 ▶", disabled=st.session_state['page']>=total_pages): st.session_state['page']+=1; st.rerun()
+                pc1, pc2, pc3 = st.columns([1,2,1])
+                with pc1:
+                    if st.button("◀ 이전", disabled=st.session_state['page']<=1): st.session_state['page']-=1; st.rerun()
+                with pc2:
+                    st.markdown(f"<div style='text-align:center;color:#FFFFFF;padding:8px;'>페이지 {st.session_state['page']} / {total_pages}</div>", unsafe_allow_html=True)
+                with pc3:
+                    if st.button("다음 ▶", disabled=st.session_state['page']>=total_pages): st.session_state['page']+=1; st.rerun()
 
-            si = (st.session_state['page']-1)*page_size
-            chart_data = prefetch_candles(df_s.iloc[si:si+page_size]['종목코드'])
-            for rank, (_, row) in enumerate(df_s.iloc[si:si+page_size].iterrows(), start=si+1):
-                render_stock_card(row, rank, chart_data.get(str(row['종목코드']).zfill(6)))
-
-        # ────────────────────────────────────────────────────────
-        # 컨센 상향 탭 — 30일 전 대비 컨센서스가 올라간 종목만 모아서
-        # Revision Score(상향률) 큰 순으로 표시
-        # ────────────────────────────────────────────────────────
-        with tab_rev:
-            snap_cmp = all_df.attrs.get('snapshot_compare_date', '') or '스냅샷 없음'
-            st.markdown(
-                "<h3 style='color:#FFFFFF;'>🚀 컨센서스 상향 종목</h3>"
-                f"<div style='color:#A0AEC0;font-size:0.85rem;margin-bottom:12px;'>"
-                f"영업이익 컨센서스(2026E×0.5 + 2027E×0.3 + 2028E×0.2 가중)가 "
-                f"<b>30일 전({snap_cmp})보다 상향</b>된 종목만, 상향률 큰 순. "
-                f"사이드바 필터가 동일하게 적용됩니다."
-                f"</div>",
-                unsafe_allow_html=True,
-            )
-
-            rev_thresh_label = st.selectbox(
-                "최소 상향률",
-                ["전체 (+0% 초과)", "+1% 이상", "+3% 이상", "+5% 이상", "+10% 이상", "+20% 이상"],
-                index=1, key="rev_tab_thresh",
-            )
-            rev_min = {"전체 (+0% 초과)": 0.0, "+1% 이상": 1.0, "+3% 이상": 3.0,
-                       "+5% 이상": 5.0, "+10% 이상": 10.0, "+20% 이상": 20.0}[rev_thresh_label]
-
-            rev_series = pd.to_numeric(df.get('Revision_Score'), errors='coerce')
-            df_rev = df[rev_series > rev_min].copy() if rev_min > 0 else df[rev_series > 0].copy()
-            df_rev = df_rev.sort_values('Revision_Score', ascending=False).reset_index(drop=True)
-
-            n_up = int((rev_series > 0).sum())
-            n_down = int((rev_series < 0).sum())
-            st.markdown(
-                f'<div style="color:#FFFFFF;font-size:0.9rem;font-family:\'JetBrains Mono\',monospace;'
-                f'margin-bottom:10px;">> 상향 <span style="color:#34D399;font-weight:700;">{n_up}</span>개 · '
-                f'하향 <span style="color:#F87171;font-weight:700;">{n_down}</span>개 중 '
-                f'조건 충족 <span style="color:#62EFFF;font-weight:700;">{len(df_rev)}</span>개</div>',
-                unsafe_allow_html=True,
-            )
-
-            if df_rev.empty:
-                st.info("조건에 맞는 상향 종목이 없습니다. 임계값을 낮추거나 사이드바 필터를 완화해보세요.")
-            else:
-                rp_size = 20
-                rp_total = max(1, (len(df_rev) - 1) // rp_size + 1)
-                if 'rev_page' not in st.session_state: st.session_state['rev_page'] = 1
-                if st.session_state['rev_page'] > rp_total: st.session_state['rev_page'] = 1
-
-                rc1, rc2, rc3 = st.columns([1, 2, 1])
-                with rc1:
-                    if st.button("◀ 이전", key="rev_prev", disabled=st.session_state['rev_page'] <= 1):
-                        st.session_state['rev_page'] -= 1; st.rerun()
-                with rc2:
-                    st.markdown(f"<div style='text-align:center;color:#FFFFFF;padding:8px;'>페이지 {st.session_state['rev_page']} / {rp_total}</div>", unsafe_allow_html=True)
-                with rc3:
-                    if st.button("다음 ▶", key="rev_next", disabled=st.session_state['rev_page'] >= rp_total):
-                        st.session_state['rev_page'] += 1; st.rerun()
-
-                rsi_ = (st.session_state['rev_page'] - 1) * rp_size
-                chart_data = prefetch_candles(df_rev.iloc[rsi_:rsi_ + rp_size]['종목코드'])
-                for rank, (_, row) in enumerate(df_rev.iloc[rsi_:rsi_ + rp_size].iterrows(), start=rsi_ + 1):
+                si = (st.session_state['page']-1)*page_size
+                chart_data = prefetch_candles(df_s.iloc[si:si+page_size]['종목코드'])
+                for rank, (_, row) in enumerate(df_s.iloc[si:si+page_size].iterrows(), start=si+1):
                     render_stock_card(row, rank, chart_data.get(str(row['종목코드']).zfill(6)))
 
-        # ────────────────────────────────────────────────────────
-        # AI 3선 탭 — 매일 크롤이 종합 점수로 선정한 3종목 + 누적 수익률
-        # ────────────────────────────────────────────────────────
-        with tab_ai:
-            st.markdown(
-                "<h3 style='color:#FFFFFF;'>🤖 AI 데일리 3선</h3>"
-                "<div style='color:#A0AEC0;font-size:0.85rem;margin-bottom:12px;'>"
-                "매일 새벽 크롤이 <b>컨센 모멘텀 30% · 성장성 20% · EV보정 밸류 20% · "
-                "수급 15% · 퀄리티 15% + 기술 가점</b>으로 전 종목을 채점해 상위 3종목을 "
-                "선정합니다 (시총 1,000억↑ · 흑자 · 27/28E 컨센 보유 · 업종 최대 2종목). "
-                "선정가 대비 수익률이 누적 기록됩니다."
-                "</div>",
-                unsafe_allow_html=True,
-            )
-
-            picks_path = os.path.join(DATA_DIR, 'daily_picks.json')
-            picks_hist = {}
-            if os.path.exists(picks_path):
-                try:
-                    picks_hist = json.load(open(picks_path, encoding='utf-8'))
-                except Exception:
-                    picks_hist = {}
-
-            if not picks_hist:
-                st.info("아직 선정 기록이 없습니다. 다음 자동 크롤부터 매일 3종목이 기록됩니다.")
-            else:
-                latest_d = max(picks_hist.keys())
-                latest_picks = picks_hist[latest_d] or []
-                chart_data = prefetch_candles([p['code'] for p in latest_picks])
-
-                # 현재가 맵 (수익률 계산용)
-                _pm = all_df.copy()
-                _pm['__c'] = _pm['종목코드'].astype(str).str.zfill(6)
-                cur_price_map = dict(zip(_pm['__c'], pd.to_numeric(_pm['현재가'], errors='coerce')))
-
+            # ────────────────────────────────────────────────────────
+            # 컨센 상향 탭 — 30일 전 대비 컨센서스가 올라간 종목만 모아서
+            # Revision Score(상향률) 큰 순으로 표시
+            # ────────────────────────────────────────────────────────
+        if tab_rev.open:
+            with tab_rev:
+                snap_cmp = all_df.attrs.get('snapshot_compare_date', '') or '스냅샷 없음'
                 st.markdown(
-                    f"<div style='color:#62EFFF;font-size:0.95rem;font-weight:700;"
-                    f"font-family:\"JetBrains Mono\",monospace;margin:6px 0 10px 0;'>"
-                    f"📅 {latest_d} 선정</div>", unsafe_allow_html=True)
+                    "<h3 style='color:#FFFFFF;'>🚀 컨센서스 상향 종목</h3>"
+                    f"<div style='color:#A0AEC0;font-size:0.85rem;margin-bottom:12px;'>"
+                    f"영업이익 컨센서스(2026E×0.5 + 2027E×0.3 + 2028E×0.2 가중)가 "
+                    f"<b>30일 전({snap_cmp})보다 상향</b>된 종목만, 상향률 큰 순. "
+                    f"사이드바 필터가 동일하게 적용됩니다."
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
 
-                _mkt_order = [('KOSPI', '🔵 코스피 3선', '#0EA5E9'),
-                              ('KOSDAQ', '🟣 코스닥 3선', '#8B5CF6')]
-                _grouped = []
-                for _mk, _ml, _mc in _mkt_order:
-                    _mps = [p for p in latest_picks if p.get('market') == _mk]
-                    if _mps:
-                        _grouped.append((_ml, _mc, _mps))
-                _others = [p for p in latest_picks if p.get('market') not in ('KOSPI', 'KOSDAQ')]
-                if _others:
-                    _grouped.append(('기타', '#94A3B8', _others))
+                rev_thresh_label = st.selectbox(
+                    "최소 상향률",
+                    ["전체 (+0% 초과)", "+1% 이상", "+3% 이상", "+5% 이상", "+10% 이상", "+20% 이상"],
+                    index=1, key="rev_tab_thresh",
+                )
+                rev_min = {"전체 (+0% 초과)": 0.0, "+1% 이상": 1.0, "+3% 이상": 3.0,
+                           "+5% 이상": 5.0, "+10% 이상": 10.0, "+20% 이상": 20.0}[rev_thresh_label]
 
-                for _ml, _mc, _mps in _grouped:
-                    st.markdown(
-                        f"<div style='color:{_mc};font-size:1.0rem;font-weight:800;"
-                        f"margin:14px 0 2px 0;border-bottom:1px solid {_mc}44;padding-bottom:4px;'>"
-                        f"{_ml}</div>", unsafe_allow_html=True)
+                rev_series = pd.to_numeric(df.get('Revision_Score'), errors='coerce')
+                df_rev = df[rev_series > rev_min].copy() if rev_min > 0 else df[rev_series > 0].copy()
+                df_rev = df_rev.sort_values('Revision_Score', ascending=False).reset_index(drop=True)
 
-                    for i, p in enumerate(_mps, 1):
-                        cur = cur_price_map.get(p['code'])
-                        ret_html = ''
-                        if cur and p.get('price'):
-                            ret = (cur / p['price'] - 1) * 100
-                            rc = '#34D399' if ret >= 0 else '#F87171'
-                            ret_html = (f'<span style="color:{rc};font-family:\'JetBrains Mono\',monospace;'
-                                        f'font-weight:800;margin-left:10px;">선정 후 {ret:+.1f}%</span>')
-                        chips = ''.join(
-                            f'<span style="display:inline-block;background:rgba(98,239,255,0.08);'
-                            f'border:1px solid rgba(98,239,255,0.25);border-radius:6px;color:#CBD5E1;'
-                            f'font-size:0.74rem;padding:2px 8px;margin:2px 4px 2px 0;">{r}</span>'
-                            for r in p.get('reasons', []))
-                        st.markdown(
-                            f'<div style="background:rgba(17,24,39,0.55);border:1px solid #4A5568;'
-                            f'border-left:3px solid {_mc};border-radius:8px;padding:10px 14px;margin:14px 0 4px 0;">'
-                            f'<span style="color:{_mc};font-weight:800;">#{i} {p["name"]}</span>'
-                            f'<span style="color:#94A3B8;font-size:0.78rem;margin-left:8px;">'
-                            f'{p.get("sector","")} · 점수 {p.get("score","-")} · 선정가 {p.get("price",0):,.0f}원</span>'
-                            f'{ret_html}<div style="margin-top:6px;">{chips}</div></div>',
-                            unsafe_allow_html=True)
-
-                        prow = all_df[_pm['__c'] == p['code']]
-                        if not prow.empty:
-                            try:
-                                crow = compute_card_fields(prow.copy())
-                                if '업종' not in crow.columns or crow['업종'].isna().all():
-                                    crow['업종'] = p.get('sector', '기타')
-                                crow['업종평균PER'] = crow['업종'].map(get_sector_per_map())
-                                if '거래량배수' not in crow.columns:
-                                    crow['거래량배수'] = np.nan
-                                crow = apply_peer_multiples_with_universe(crow, all_df)
-                                render_stock_card(crow.iloc[0], i, chart_data.get(str(p['code']).zfill(6)))
-                            except Exception:
-                                pass
-
-                # ── 누적 기록 ──
-                st.markdown("<h4 style='color:#FFFFFF;margin-top:18px;'>📜 누적 성과 (종목별 · 최초 선정 기준)</h4>",
-                            unsafe_allow_html=True)
-                # 종목별로 '최초 선정일·최초 선정가'만 남긴다 (같은 종목이 여러 날
-                # 뽑혔어도 처음 뽑힌 시점 기준으로 수익률을 추적).
-                first = {}   # code -> record
-                for d in sorted(picks_hist.keys()):          # 과거→현재 순회
-                    for p in (picks_hist[d] or []):
-                        c = p['code']
-                        if c not in first:
-                            first[c] = {'선정일': d, 'p': p, 'n': 1}
-                        else:
-                            first[c]['n'] += 1               # 재선정 횟수 누적
-                recs = []
-                for c, info in first.items():
-                    p = info['p']
-                    fp = p.get('price')
-                    cur = cur_price_map.get(c)
-                    ret = (cur / fp - 1) * 100 if (cur and fp) else np.nan
-                    recs.append({
-                        '최초선정일': info['선정일'],
-                        '시장': p.get('market', ''), '종목명': p['name'],
-                        '업종': p.get('sector', ''),
-                        '최초선정가': fp, '현재가': cur,
-                        '수익률%': round(ret, 1) if pd.notna(ret) else None,
-                        '재선정': info['n'],
-                    })
-                if recs:
-                    hist_df = pd.DataFrame(recs)
-                    # 수익률 내림차순 정렬 + 순위 부여 (NaN은 맨 뒤)
-                    hist_df = hist_df.sort_values('수익률%', ascending=False,
-                                                  na_position='last').reset_index(drop=True)
-                    r_ = pd.to_numeric(hist_df['수익률%'], errors='coerce')
-                    hist_df.insert(0, '순위', r_.rank(ascending=False, method='min').astype('Int64'))
-                    rets = r_.dropna()
-
-                    m1, m2, m3, m4 = st.columns(4)
-                    m1.metric("추적 종목", f"{len(hist_df)}개")
-                    m2.metric("평균 수익률", f"{rets.mean():+.1f}%" if len(rets) else "-")
-                    m3.metric("승률", f"{(rets > 0).mean()*100:.0f}%" if len(rets) else "-")
-                    m4.metric("최고/최저", f"{rets.max():+.1f}% / {rets.min():+.1f}%" if len(rets) else "-")
-
-                    st.dataframe(hist_df, use_container_width=True, height=440,
-                                 hide_index=True, column_config={
-                        '순위': st.column_config.NumberColumn('순위', format='%d위', width='small'),
-                        '최초선정가': st.column_config.NumberColumn('최초선정가', format='%d원'),
-                        '현재가': st.column_config.NumberColumn('현재가', format='%d원'),
-                        '수익률%': st.column_config.NumberColumn('수익률', format='%+.1f%%'),
-                        '재선정': st.column_config.NumberColumn('선정횟수', format='%d회', width='small'),
-                    })
-                    st.caption("※ 같은 종목이 여러 번 뽑혀도 **최초 선정일·최초 선정가** 기준. "
-                               "수익률 = (현재가 / 최초선정가 − 1). 순위는 수익률 내림차순.")
-
-                from performance_view import render_performance
-                render_performance(DATA_DIR, picks_hist)
-
-        # ────────────────────────────────────────────────────────
-        # 개별종목확인 탭 — 필터 무시하고 종목명/코드로 직접 검색
-        # ────────────────────────────────────────────────────────
-        with tab_search:
-            st.markdown(
-                "<h3 style='color:#FFFFFF;'>🔍 개별종목 확인</h3>"
-                "<div style='color:#A0AEC0;font-size:0.85rem;margin-bottom:12px;'>"
-                "필터에 걸리지 않은 종목도 종목명(한글)이나 종목코드로 검색해 카드 형태로 확인할 수 있습니다."
-                "</div>",
-                unsafe_allow_html=True,
-            )
-
-            search_q = st.text_input(
-                "종목명 또는 종목코드",
-                value=st.session_state.get('search_q', ''),
-                placeholder="예: 삼성전자, 005930, HBM, 2차전지",
-                key="search_q",
-            )
-
-            q = (search_q or '').strip()
-            if not q:
+                n_up = int((rev_series > 0).sum())
+                n_down = int((rev_series < 0).sum())
                 st.markdown(
-                    "<div style='color:#A0AEC0;font-size:0.9rem;padding:30px 0;'>"
-                    "↑ 종목명 또는 6자리 코드를 입력하세요. 부분 일치(예: '삼성' → 삼성전자/삼성SDI/...) 가능."
+                    f'<div style="color:#FFFFFF;font-size:0.9rem;font-family:\'JetBrains Mono\',monospace;'
+                    f'margin-bottom:10px;">> 상향 <span style="color:#34D399;font-weight:700;">{n_up}</span>개 · '
+                    f'하향 <span style="color:#F87171;font-weight:700;">{n_down}</span>개 중 '
+                    f'조건 충족 <span style="color:#62EFFF;font-weight:700;">{len(df_rev)}</span>개</div>',
+                    unsafe_allow_html=True,
+                )
+
+                if df_rev.empty:
+                    st.info("조건에 맞는 상향 종목이 없습니다. 임계값을 낮추거나 사이드바 필터를 완화해보세요.")
+                else:
+                    rp_size = 20
+                    rp_total = max(1, (len(df_rev) - 1) // rp_size + 1)
+                    if 'rev_page' not in st.session_state: st.session_state['rev_page'] = 1
+                    if st.session_state['rev_page'] > rp_total: st.session_state['rev_page'] = 1
+
+                    rc1, rc2, rc3 = st.columns([1, 2, 1])
+                    with rc1:
+                        if st.button("◀ 이전", key="rev_prev", disabled=st.session_state['rev_page'] <= 1):
+                            st.session_state['rev_page'] -= 1; st.rerun()
+                    with rc2:
+                        st.markdown(f"<div style='text-align:center;color:#FFFFFF;padding:8px;'>페이지 {st.session_state['rev_page']} / {rp_total}</div>", unsafe_allow_html=True)
+                    with rc3:
+                        if st.button("다음 ▶", key="rev_next", disabled=st.session_state['rev_page'] >= rp_total):
+                            st.session_state['rev_page'] += 1; st.rerun()
+
+                    rsi_ = (st.session_state['rev_page'] - 1) * rp_size
+                    chart_data = prefetch_candles(df_rev.iloc[rsi_:rsi_ + rp_size]['종목코드'])
+                    for rank, (_, row) in enumerate(df_rev.iloc[rsi_:rsi_ + rp_size].iterrows(), start=rsi_ + 1):
+                        render_stock_card(row, rank, chart_data.get(str(row['종목코드']).zfill(6)))
+
+            # ────────────────────────────────────────────────────────
+            # AI 3선 탭 — 매일 크롤이 종합 점수로 선정한 3종목 + 누적 수익률
+            # ────────────────────────────────────────────────────────
+        if tab_ai.open:
+            with tab_ai:
+                st.markdown(
+                    "<h3 style='color:#FFFFFF;'>🤖 AI 데일리 3선</h3>"
+                    "<div style='color:#A0AEC0;font-size:0.85rem;margin-bottom:12px;'>"
+                    "매일 새벽 크롤이 <b>컨센 모멘텀 30% · 성장성 20% · EV보정 밸류 20% · "
+                    "수급 15% · 퀄리티 15% + 기술 가점</b>으로 전 종목을 채점해 상위 3종목을 "
+                    "선정합니다 (시총 1,000억↑ · 흑자 · 27/28E 컨센 보유 · 업종 최대 2종목). "
+                    "선정가 대비 수익률이 누적 기록됩니다."
                     "</div>",
                     unsafe_allow_html=True,
                 )
-            else:
-                base = all_df.copy()
-                # 코드 정규화
-                base['__code'] = base['종목코드'].astype(str).str.zfill(6)
-                # 검색 조건: 종목명 contains (대소문자 무시) OR 코드 contains
-                name_mask = base['종목명'].astype(str).str.contains(q, case=False, na=False, regex=False)
-                if q.isdigit():
-                    code_mask = base['__code'].str.contains(q.zfill(min(6, len(q))) if len(q) >= 3 else q, na=False)
-                else:
-                    code_mask = pd.Series(False, index=base.index)
-                hits = base[name_mask | code_mask].drop(columns='__code', errors='ignore')
 
-                if hits.empty:
-                    st.warning(f"⚠️ '{q}'에 해당하는 종목이 없습니다. (캐시: {len(all_df):,}개 종목)")
-                else:
-                    # 카드 렌더에 필요한 파생 컬럼 + 업종/업종평균PER 매핑
-                    hits = compute_card_fields(hits)
-                    if '업종' not in hits.columns or hits['업종'].isna().all():
-                        sector_map_local = _load_sector_map()
-                        hits['업종'] = hits['종목코드'].astype(str).str.zfill(6).map(sector_map_local).fillna('기타')
-                    else:
-                        hits['업종'] = hits['업종'].fillna('기타')
-                    hits['업종평균PER'] = hits['업종'].map(get_sector_per_map())
-
-                    # 거래량배수 폴백 (기존 캐시에 없을 수 있음)
-                    if '거래량배수' not in hits.columns:
-                        hits['거래량배수'] = np.nan
-
-                    # 업종 상대 멀티플: universe = 전체 캐시(all_df)
+                picks_path = os.path.join(DATA_DIR, 'daily_picks.json')
+                picks_hist = {}
+                if os.path.exists(picks_path):
                     try:
-                        hits = apply_peer_multiples_with_universe(hits, all_df)
+                        picks_hist = json.load(open(picks_path, encoding='utf-8'))
                     except Exception:
-                        pass
+                        picks_hist = {}
 
-                    hits = hits.sort_values('가시성기준_정렬점수', ascending=False).reset_index(drop=True)
+                if not picks_hist:
+                    st.info("아직 선정 기록이 없습니다. 다음 자동 크롤부터 매일 3종목이 기록됩니다.")
+                else:
+                    latest_d = max(picks_hist.keys())
+                    latest_picks = picks_hist[latest_d] or []
+                    chart_data = prefetch_candles([p['code'] for p in latest_picks])
+
+                    # 현재가 맵 (수익률 계산용)
+                    _pm = all_df.copy()
+                    _pm['__c'] = _pm['종목코드'].astype(str).str.zfill(6)
+                    cur_price_map = dict(zip(_pm['__c'], pd.to_numeric(_pm['현재가'], errors='coerce')))
 
                     st.markdown(
-                        f"<div style='color:#62EFFF; font-size:0.9rem; "
-                        f"font-family:\"JetBrains Mono\", monospace; margin: 8px 0 14px 0;'>"
-                        f"&gt; \"{q}\" 검색 결과: <b>{len(hits)}</b>개 종목</div>",
+                        f"<div style='color:#62EFFF;font-size:0.95rem;font-weight:700;"
+                        f"font-family:\"JetBrains Mono\",monospace;margin:6px 0 10px 0;'>"
+                        f"📅 {latest_d} 선정</div>", unsafe_allow_html=True)
+
+                    _mkt_order = [('KOSPI', '🔵 코스피 3선', '#0EA5E9'),
+                                  ('KOSDAQ', '🟣 코스닥 3선', '#8B5CF6')]
+                    _grouped = []
+                    for _mk, _ml, _mc in _mkt_order:
+                        _mps = [p for p in latest_picks if p.get('market') == _mk]
+                        if _mps:
+                            _grouped.append((_ml, _mc, _mps))
+                    _others = [p for p in latest_picks if p.get('market') not in ('KOSPI', 'KOSDAQ')]
+                    if _others:
+                        _grouped.append(('기타', '#94A3B8', _others))
+
+                    for _ml, _mc, _mps in _grouped:
+                        st.markdown(
+                            f"<div style='color:{_mc};font-size:1.0rem;font-weight:800;"
+                            f"margin:14px 0 2px 0;border-bottom:1px solid {_mc}44;padding-bottom:4px;'>"
+                            f"{_ml}</div>", unsafe_allow_html=True)
+
+                        for i, p in enumerate(_mps, 1):
+                            cur = cur_price_map.get(p['code'])
+                            ret_html = ''
+                            if cur and p.get('price'):
+                                ret = (cur / p['price'] - 1) * 100
+                                rc = '#34D399' if ret >= 0 else '#F87171'
+                                ret_html = (f'<span style="color:{rc};font-family:\'JetBrains Mono\',monospace;'
+                                            f'font-weight:800;margin-left:10px;">선정 후 {ret:+.1f}%</span>')
+                            chips = ''.join(
+                                f'<span style="display:inline-block;background:rgba(98,239,255,0.08);'
+                                f'border:1px solid rgba(98,239,255,0.25);border-radius:6px;color:#CBD5E1;'
+                                f'font-size:0.74rem;padding:2px 8px;margin:2px 4px 2px 0;">{r}</span>'
+                                for r in p.get('reasons', []))
+                            st.markdown(
+                                f'<div style="background:rgba(17,24,39,0.55);border:1px solid #4A5568;'
+                                f'border-left:3px solid {_mc};border-radius:8px;padding:10px 14px;margin:14px 0 4px 0;">'
+                                f'<span style="color:{_mc};font-weight:800;">#{i} {p["name"]}</span>'
+                                f'<span style="color:#94A3B8;font-size:0.78rem;margin-left:8px;">'
+                                f'{p.get("sector","")} · 점수 {p.get("score","-")} · 선정가 {p.get("price",0):,.0f}원</span>'
+                                f'{ret_html}<div style="margin-top:6px;">{chips}</div></div>',
+                                unsafe_allow_html=True)
+
+                            prow = all_df[_pm['__c'] == p['code']]
+                            if not prow.empty:
+                                try:
+                                    crow = compute_card_fields(prow.copy())
+                                    if '업종' not in crow.columns or crow['업종'].isna().all():
+                                        crow['업종'] = p.get('sector', '기타')
+                                    crow['업종평균PER'] = crow['업종'].map(get_sector_per_map())
+                                    if '거래량배수' not in crow.columns:
+                                        crow['거래량배수'] = np.nan
+                                    crow = apply_peer_multiples_with_universe(crow, all_df)
+                                    render_stock_card(crow.iloc[0], i, chart_data.get(str(p['code']).zfill(6)))
+                                except Exception:
+                                    pass
+
+                    # ── 누적 기록 ──
+                    st.markdown("<h4 style='color:#FFFFFF;margin-top:18px;'>📜 누적 성과 (종목별 · 최초 선정 기준)</h4>",
+                                unsafe_allow_html=True)
+                    # 종목별로 '최초 선정일·최초 선정가'만 남긴다 (같은 종목이 여러 날
+                    # 뽑혔어도 처음 뽑힌 시점 기준으로 수익률을 추적).
+                    first = {}   # code -> record
+                    for d in sorted(picks_hist.keys()):          # 과거→현재 순회
+                        for p in (picks_hist[d] or []):
+                            c = p['code']
+                            if c not in first:
+                                first[c] = {'선정일': d, 'p': p, 'n': 1}
+                            else:
+                                first[c]['n'] += 1               # 재선정 횟수 누적
+                    recs = []
+                    for c, info in first.items():
+                        p = info['p']
+                        fp = p.get('price')
+                        cur = cur_price_map.get(c)
+                        ret = (cur / fp - 1) * 100 if (cur and fp) else np.nan
+                        recs.append({
+                            '최초선정일': info['선정일'],
+                            '시장': p.get('market', ''), '종목명': p['name'],
+                            '업종': p.get('sector', ''),
+                            '최초선정가': fp, '현재가': cur,
+                            '수익률%': round(ret, 1) if pd.notna(ret) else None,
+                            '재선정': info['n'],
+                        })
+                    if recs:
+                        hist_df = pd.DataFrame(recs)
+                        # 수익률 내림차순 정렬 + 순위 부여 (NaN은 맨 뒤)
+                        hist_df = hist_df.sort_values('수익률%', ascending=False,
+                                                      na_position='last').reset_index(drop=True)
+                        r_ = pd.to_numeric(hist_df['수익률%'], errors='coerce')
+                        hist_df.insert(0, '순위', r_.rank(ascending=False, method='min').astype('Int64'))
+                        rets = r_.dropna()
+
+                        m1, m2, m3, m4 = st.columns(4)
+                        m1.metric("추적 종목", f"{len(hist_df)}개")
+                        m2.metric("평균 수익률", f"{rets.mean():+.1f}%" if len(rets) else "-")
+                        m3.metric("승률", f"{(rets > 0).mean()*100:.0f}%" if len(rets) else "-")
+                        m4.metric("최고/최저", f"{rets.max():+.1f}% / {rets.min():+.1f}%" if len(rets) else "-")
+
+                        st.dataframe(hist_df, use_container_width=True, height=440,
+                                     hide_index=True, column_config={
+                            '순위': st.column_config.NumberColumn('순위', format='%d위', width='small'),
+                            '최초선정가': st.column_config.NumberColumn('최초선정가', format='%d원'),
+                            '현재가': st.column_config.NumberColumn('현재가', format='%d원'),
+                            '수익률%': st.column_config.NumberColumn('수익률', format='%+.1f%%'),
+                            '재선정': st.column_config.NumberColumn('선정횟수', format='%d회', width='small'),
+                        })
+                        st.caption("※ 같은 종목이 여러 번 뽑혀도 **최초 선정일·최초 선정가** 기준. "
+                                   "수익률 = (현재가 / 최초선정가 − 1). 순위는 수익률 내림차순.")
+
+                    from performance_view import render_performance
+                    render_performance(DATA_DIR, picks_hist)
+
+            # ────────────────────────────────────────────────────────
+            # 개별종목확인 탭 — 필터 무시하고 종목명/코드로 직접 검색
+            # ────────────────────────────────────────────────────────
+        if tab_search.open:
+            with tab_search:
+                st.markdown(
+                    "<h3 style='color:#FFFFFF;'>🔍 개별종목 확인</h3>"
+                    "<div style='color:#A0AEC0;font-size:0.85rem;margin-bottom:12px;'>"
+                    "필터에 걸리지 않은 종목도 종목명(한글)이나 종목코드로 검색해 카드 형태로 확인할 수 있습니다."
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+
+                search_q = st.text_input(
+                    "종목명 또는 종목코드",
+                    value=st.session_state.get('search_q', ''),
+                    placeholder="예: 삼성전자, 005930, HBM, 2차전지",
+                    key="search_q",
+                )
+
+                q = (search_q or '').strip()
+                if not q:
+                    st.markdown(
+                        "<div style='color:#A0AEC0;font-size:0.9rem;padding:30px 0;'>"
+                        "↑ 종목명 또는 6자리 코드를 입력하세요. 부분 일치(예: '삼성' → 삼성전자/삼성SDI/...) 가능."
+                        "</div>",
                         unsafe_allow_html=True,
                     )
+                else:
+                    base = all_df.copy()
+                    # 코드 정규화
+                    base['__code'] = base['종목코드'].astype(str).str.zfill(6)
+                    # 검색 조건: 종목명 contains (대소문자 무시) OR 코드 contains
+                    name_mask = base['종목명'].astype(str).str.contains(q, case=False, na=False, regex=False)
+                    if q.isdigit():
+                        code_mask = base['__code'].str.contains(q.zfill(min(6, len(q))) if len(q) >= 3 else q, na=False)
+                    else:
+                        code_mask = pd.Series(False, index=base.index)
+                    hits = base[name_mask | code_mask].drop(columns='__code', errors='ignore')
 
-                    # 너무 많으면 상위 N개만 (안전장치)
-                    MAX_CARDS = 30
-                    show_df = hits.head(MAX_CARDS)
-                    chart_data = prefetch_candles(show_df['종목코드'])
-                    if len(hits) > MAX_CARDS:
-                        st.info(f"검색 결과가 {len(hits)}개로 많아 상위 {MAX_CARDS}개만 카드로 표시합니다. 더 정확한 검색어를 입력하세요.")
-                    for rank, (_, row) in enumerate(show_df.iterrows(), start=1):
-                        render_stock_card(row, rank, chart_data.get(str(row['종목코드']).zfill(6)))
+                    if hits.empty:
+                        st.warning(f"⚠️ '{q}'에 해당하는 종목이 없습니다. (캐시: {len(all_df):,}개 종목)")
+                    else:
+                        # 카드 렌더에 필요한 파생 컬럼 + 업종/업종평균PER 매핑
+                        hits = compute_card_fields(hits)
+                        if '업종' not in hits.columns or hits['업종'].isna().all():
+                            sector_map_local = _load_sector_map()
+                            hits['업종'] = hits['종목코드'].astype(str).str.zfill(6).map(sector_map_local).fillna('기타')
+                        else:
+                            hits['업종'] = hits['업종'].fillna('기타')
+                        hits['업종평균PER'] = hits['업종'].map(get_sector_per_map())
 
-        # ════════════════════════════════════════════════════════
-        # 🎯 판정별 분류 — 종합판정으로 나눠 보고, 수급으로 줄세운다
-        # ════════════════════════════════════════════════════════
-        with tab_verdict:
-            st.markdown("<h3 style='color:#FFFFFF;'>🎯 종합판정별 종목 분류</h3>",
-                        unsafe_allow_html=True)
+                        # 거래량배수 폴백 (기존 캐시에 없을 수 있음)
+                        if '거래량배수' not in hits.columns:
+                            hits['거래량배수'] = np.nan
 
-            # 기본은 '필터 통과' — 전체 2600여 종목을 그대로 늘어놓으면
-            # 판정별로도 수백 개라 눈으로 훑을 수가 없다.
-            n_flt = 0 if df is None else len(df)
-            n_all = 0 if all_df is None else len(all_df)
-            vc1, vc2 = st.columns([1, 1])
-            with vc1:
-                scope = st.radio("대상",
-                                 [f"필터 통과 ({n_flt})", f"전체 ({n_all})"],
-                                 horizontal=True, key='vd_scope')
-            base = df if scope.startswith("필터") else all_df
-            vdf = attach_verdicts(base)
+                        # 업종 상대 멀티플: universe = 전체 캐시(all_df)
+                        try:
+                            hits = apply_peer_multiples_with_universe(hits, all_df)
+                        except Exception:
+                            pass
 
-            if vdf is None or vdf.empty:
-                st.info("사이드바 필터를 통과한 종목이 없습니다. "
-                        "조건을 완화하거나 위에서 '전체'로 바꿔보세요.")
-            else:
-                flow_n = int(vdf['외인_5d'].notna().sum()) if '외인_5d' in vdf.columns else 0
-                if flow_n == 0:
-                    st.warning("외인·기관 수급이 아직 수집되지 않았습니다 "
-                               "(다음 새벽 크롤 후 채워집니다). 지금은 판정·기술지표 기준으로만 정렬됩니다.")
+                        hits = hits.sort_values('가시성기준_정렬점수', ascending=False).reset_index(drop=True)
 
-                with vc2:
-                    side = st.radio("성격", ["전체", "강세", "약세", "경계·중립"],
-                                    horizontal=True, key='vd_side')
-                pool = vdf if side == "전체" else vdf[vdf['성격'] == side]
+                        st.markdown(
+                            f"<div style='color:#62EFFF; font-size:0.9rem; "
+                            f"font-family:\"JetBrains Mono\", monospace; margin: 8px 0 14px 0;'>"
+                            f"&gt; \"{q}\" 검색 결과: <b>{len(hits)}</b>개 종목</div>",
+                            unsafe_allow_html=True,
+                        )
 
-                counts = pool['판정'].value_counts()
-                icons = dict(zip(vdf['판정'], vdf['판정아이콘']))
-                present = [v for v in VERDICT_ALL if counts.get(v, 0) > 0]
-                labels = [f"— 전체 ({len(pool)}) —"] + [
-                    f"{icons.get(v, '·')} {v} ({int(counts[v])})" for v in present]
-                pick = st.selectbox("판정 선택 (클릭하면 해당 판정 종목만 나옵니다)",
-                                    labels, index=0, key='vd_pick')
-                sel = pool if pick.startswith("— 전체") else                       pool[pool['판정'] == present[labels.index(pick) - 1]]
+                        # 너무 많으면 상위 N개만 (안전장치)
+                        MAX_CARDS = 30
+                        show_df = hits.head(MAX_CARDS)
+                        chart_data = prefetch_candles(show_df['종목코드'])
+                        if len(hits) > MAX_CARDS:
+                            st.info(f"검색 결과가 {len(hits)}개로 많아 상위 {MAX_CARDS}개만 카드로 표시합니다. 더 정확한 검색어를 입력하세요.")
+                        for rank, (_, row) in enumerate(show_df.iterrows(), start=1):
+                            render_stock_card(row, rank, chart_data.get(str(row['종목코드']).zfill(6)))
 
-                sort_opts = {
-                    "🔥 외인+기관 5일 순매수(억)": ('수급합_5d', False),
-                    "🌍 외인 5일 순매수(억)":     ('외인금액_5d', False),
-                    "🏦 기관 5일 순매수(억)":     ('기관금액_5d', False),
-                    "📅 외인+기관 20일 순매수(억)": ('수급합_20d', False),
-                    "⭐ 종합성장점수":            ('종합성장점수', False),
-                    "📉 RSI 낮은순 (과매도)":     ('RSI', True),
-                    "💰 시가총액":               ('시가총액', False),
-                }
-                # '종합성장점수'처럼 필터 통과분에만 있는 컬럼은 자동 제외
-                sort_opts = {k: c for k, c in sort_opts.items() if c[0] in vdf.columns}
-                names = list(sort_opts.keys())
-                want = "🔥 외인+기관 5일 순매수(억)" if flow_n else "⭐ 종합성장점수"
-                default_i = names.index(want) if want in names else 0
-                sc1, sc2 = st.columns([2, 1])
-                with sc1:
-                    sort_label = st.selectbox("정렬 기준", names,
-                                              index=default_i, key='vd_sort')
-                with sc2:
-                    both_only = st.checkbox("외인·기관 동시 매수(쌍끌이)만",
-                                            value=False, key='vd_both')
-
-                if both_only:
-                    sel = sel[(pd.to_numeric(sel['외인_5d'], errors='coerce') > 0) &
-                              (pd.to_numeric(sel['기관_5d'], errors='coerce') > 0)]
-
-                col, asc = sort_opts[sort_label]
-                if col in sel.columns:
-                    sel = sel.sort_values(col, ascending=asc, na_position='last')
-
-                st.markdown(f"<div style='color:#94A3B8;font-size:0.82rem;margin:6px 0;'>"
-                            f"{len(sel)}개 종목 · 수급은 <b>순매수 주식수 × 현재가</b>로 환산한 "
-                            f"억원 단위입니다(주가 차이로 인한 왜곡 제거)</div>",
+            # ════════════════════════════════════════════════════════
+            # 🎯 판정별 분류 — 종합판정으로 나눠 보고, 수급으로 줄세운다
+            # ════════════════════════════════════════════════════════
+        if tab_verdict.open:
+            with tab_verdict:
+                st.markdown("<h3 style='color:#FFFFFF;'>🎯 종합판정별 종목 분류</h3>",
                             unsafe_allow_html=True)
 
-                if sel.empty:
-                    st.info("조건에 맞는 종목이 없습니다.")
+                # 기본은 '필터 통과' — 전체 2600여 종목을 그대로 늘어놓으면
+                # 판정별로도 수백 개라 눈으로 훑을 수가 없다.
+                n_flt = 0 if df is None else len(df)
+                n_all = 0 if all_df is None else len(all_df)
+                vc1, vc2 = st.columns([1, 1])
+                with vc1:
+                    scope = st.radio("대상",
+                                     [f"필터 통과 ({n_flt})", f"전체 ({n_all})"],
+                                     horizontal=True, key='vd_scope')
+                base = df if scope.startswith("필터") else all_df
+                vdf = attach_verdicts(base)
+
+                if vdf is None or vdf.empty:
+                    st.info("사이드바 필터를 통과한 종목이 없습니다. "
+                            "조건을 완화하거나 위에서 '전체'로 바꿔보세요.")
                 else:
-                    v = sel.head(300).copy()
-                    v['링크'] = v['종목코드'].apply(
-                        naver_item_url)
-                    for src, dst, lab in (('OBV_trend', 'OBV', OBV_LABEL),
-                                          ('MACD_signal', 'MACD', MACD_LABEL),
-                                          ('MA_align', '이평', MA_LABEL)):
-                        if src in v.columns:
-                            v[dst] = v[src].map(lab).fillna('-')
-                    v['판정표시'] = v['판정아이콘'] + ' ' + v['판정']
-                    want_cols = [('판정표시', '판정'), ('종목명', '종목명'), ('링크', '링크'),
-                                 ('시장', '시장'), ('업종', '업종'), ('현재가', '현재가'),
-                                 ('외인금액_5d', '외인5일(억)'), ('기관금액_5d', '기관5일(억)'),
-                                 ('수급합_5d', '합계5일(억)'), ('수급합_20d', '합계20일(억)'),
-                                 ('RSI', 'RSI'), ('OBV', 'OBV'), ('MACD', 'MACD'),
-                                 ('이평', '이평'), ('시가총액', '시총(억)'),
-                                 ('종합성장점수', '성장점수')]
-                    pairs = [(c, lbl) for c, lbl in want_cols if c in v.columns]
-                    show = v[[c for c, _ in pairs]].copy()
-                    show.columns = [lbl for _, lbl in pairs]
-                    st.dataframe(
-                        show, use_container_width=True, hide_index=True, height=620,
-                        column_config={
-                            '링크': st.column_config.LinkColumn('네이버', display_text='📈'),
-                            '현재가': st.column_config.NumberColumn(format="%d"),
-                            '외인5일(억)': st.column_config.NumberColumn(format="%.1f"),
-                            '기관5일(억)': st.column_config.NumberColumn(format="%.1f"),
-                            '합계5일(억)': st.column_config.NumberColumn(format="%.1f"),
-                            '합계20일(억)': st.column_config.NumberColumn(format="%.1f"),
-                            'RSI': st.column_config.NumberColumn(format="%.1f"),
-                            '시총(억)': st.column_config.NumberColumn(format="%d"),
-                            '성장점수': st.column_config.NumberColumn(format="%d"),
-                        })
-                    if len(sel) > 300:
-                        st.caption(f"상위 300개만 표시 (전체 {len(sel)}개)")
-                    st.markdown(
-                        "<div class='sect-note'>"
-                        "판정은 <b>OBV·RSI·MACD 3종 매트릭스</b>로 매겨집니다 — 카드의 종합판정과 동일합니다. "
-                        "수급 <b>+</b>는 순매수(매집), <b>−</b>는 순매도(분산)입니다.<br>"
-                        "⚠️ 수급은 5·20일 누적일 뿐 매수 주체의 의도를 알려주지 않습니다. "
-                        "지수 편입·차익거래·ETF 리밸런싱으로 인한 기계적 매수가 섞입니다."
-                        "</div>", unsafe_allow_html=True)
+                    flow_n = int(vdf['외인_5d'].notna().sum()) if '외인_5d' in vdf.columns else 0
+                    if flow_n == 0:
+                        st.warning("외인·기관 수급이 아직 수집되지 않았습니다 "
+                                   "(다음 새벽 크롤 후 채워집니다). 지금은 판정·기술지표 기준으로만 정렬됩니다.")
 
-        # ════════════════════════════════════════════════════════
-        # 🔥 주도업종 저평가 — 강한 업종 Top10 → 업종 전 종목 괴리율
-        # ════════════════════════════════════════════════════════
-        with tab_lead:
-            st.markdown("<h3 style='color:#FFFFFF;'>🔥 주도업종 → 저평가 종목 발굴</h3>",
-                        unsafe_allow_html=True)
-            try:
-                from sector_leaders import rank_sectors, sector_detail
-                lead = rank_sectors(all_df, snapshot_dir=SNAPSHOT_DIR, top_n=10)
-            except Exception as e:
-                lead = pd.DataFrame()
-                st.error(f"업종 랭킹 계산 실패: {e}")
+                    with vc2:
+                        side = st.radio("성격", ["전체", "강세", "약세", "경계·중립"],
+                                        horizontal=True, key='vd_side')
+                    pool = vdf if side == "전체" else vdf[vdf['성격'] == side]
 
-            if lead.empty:
-                st.info("업종 데이터가 부족합니다. 새벽 자동 크롤 후 다시 확인해주세요.")
-            else:
-                used = lead.attrs.get('components_used', [])
-                mdays = lead.attrs.get('momentum_days', 0)
-                st.markdown(
-                    f"<div style='color:#94A3B8;font-size:0.8rem;margin-bottom:8px;'>"
-                    f"강도 점수 = {' + '.join(used) if used else '-'} "
-                    f"(결측 요소는 제외 후 재정규화)"
-                    + (f" · 모멘텀 {mdays}일 구간" if mdays else "")
-                    + "</div>", unsafe_allow_html=True)
+                    counts = pool['판정'].value_counts()
+                    icons = dict(zip(vdf['판정'], vdf['판정아이콘']))
+                    present = [v for v in VERDICT_ALL if counts.get(v, 0) > 0]
+                    labels = [f"— 전체 ({len(pool)}) —"] + [
+                        f"{icons.get(v, '·')} {v} ({int(counts[v])})" for v in present]
+                    pick = st.selectbox("판정 선택 (클릭하면 해당 판정 종목만 나옵니다)",
+                                        labels, index=0, key='vd_pick')
+                    sel = pool if pick.startswith("— 전체") else                       pool[pool['판정'] == present[labels.index(pick) - 1]]
 
-                lead_view = lead[['rank', '업종', 'score', 'tech', 'momentum_pct',
-                                  'activity', 'n_stocks']].copy()
-                lead_view.columns = ['순위', '업종', '강도점수', '기술강세',
-                                     '모멘텀%', '거래활발도', '종목수']
-                st.dataframe(lead_view, use_container_width=True, hide_index=True,
-                             height=390)
+                    sort_opts = {
+                        "🔥 외인+기관 5일 순매수(억)": ('수급합_5d', False),
+                        "🌍 외인 5일 순매수(억)":     ('외인금액_5d', False),
+                        "🏦 기관 5일 순매수(억)":     ('기관금액_5d', False),
+                        "📅 외인+기관 20일 순매수(억)": ('수급합_20d', False),
+                        "⭐ 종합성장점수":            ('종합성장점수', False),
+                        "📉 RSI 낮은순 (과매도)":     ('RSI', True),
+                        "💰 시가총액":               ('시가총액', False),
+                    }
+                    # '종합성장점수'처럼 필터 통과분에만 있는 컬럼은 자동 제외
+                    sort_opts = {k: c for k, c in sort_opts.items() if c[0] in vdf.columns}
+                    names = list(sort_opts.keys())
+                    want = "🔥 외인+기관 5일 순매수(억)" if flow_n else "⭐ 종합성장점수"
+                    default_i = names.index(want) if want in names else 0
+                    sc1, sc2 = st.columns([2, 1])
+                    with sc1:
+                        sort_label = st.selectbox("정렬 기준", names,
+                                                  index=default_i, key='vd_sort')
+                    with sc2:
+                        both_only = st.checkbox("외인·기관 동시 매수(쌍끌이)만",
+                                                value=False, key='vd_both')
 
-                st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
-                sel_sector = st.selectbox(
-                    "업종 선택 → 해당 업종 전 종목의 저평가 순위",
-                    options=lead['업종'].tolist(), index=0, key='lead_sector')
+                    if both_only:
+                        sel = sel[(pd.to_numeric(sel['외인_5d'], errors='coerce') > 0) &
+                                  (pd.to_numeric(sel['기관_5d'], errors='coerce') > 0)]
 
-                with st.spinner(f"{sel_sector} 업종 종목 분석 중..."):
-                    det = sector_detail(sel_sector, all_df)
+                    col, asc = sort_opts[sort_label]
+                    if col in sel.columns:
+                        sel = sel.sort_values(col, ascending=asc, na_position='last')
 
-                if det.empty:
-                    st.info("해당 업종에서 계산 가능한 종목이 없습니다.")
-                else:
-                    det = det.copy()
-                    det['링크'] = det['종목코드'].apply(
-                        naver_item_url)
-                    view = det[['종목명', '링크', '시장', '현재가', '시가총액',
-                                '적정시총_보정', '괴리율_보정', '괴리율', '기준연도',
-                                '피어멀티플', '성장프리미엄', '영업이익성장', '매출성장',
-                                'n_peers', '경고']].copy()
-                    view.columns = ['종목명', '링크', '시장', '현재가', '현재시총(억)',
-                                    '적정시총(억)', '괴리율%', '단순괴리율%', '기준',
-                                    '피어멀티플', '성장배수', '영업이익성장%', '매출성장%',
-                                    '피어수', '주의']
-                    st.dataframe(
-                        view, use_container_width=True, hide_index=True, height=560,
-                        column_config={
-                            '링크': st.column_config.LinkColumn('네이버', display_text='📈'),
-                            '현재가': st.column_config.NumberColumn(format="%d"),
-                            '현재시총(억)': st.column_config.NumberColumn(format="%d"),
-                            '적정시총(억)': st.column_config.NumberColumn(format="%d"),
-                            '괴리율%': st.column_config.NumberColumn(format="%.1f"),
-                            '단순괴리율%': st.column_config.NumberColumn(format="%.1f"),
-                            '피어멀티플': st.column_config.NumberColumn(format="%.1f"),
-                            '성장배수': st.column_config.NumberColumn(format="%.2f"),
-                            '영업이익성장%': st.column_config.NumberColumn(format="%.1f"),
-                            '매출성장%': st.column_config.NumberColumn(format="%.1f"),
-                        })
-                    st.markdown(
-                        "<div class='sect-note'>"
-                        "적정시총 = 동일업종 피어 멀티플(EV/영업이익) × 대상 영업이익 − 순차입금. "
-                        "<b>괴리율%</b>는 성장 프리미엄을 반영한 값(성장배수), "
-                        "<b>단순괴리율%</b>는 미반영 값 — 두 값 차이가 성장 효과입니다. "
-                        "기준은 2028E 우선, 없으면 27E→26E→25E로 폴백합니다.<br>"
-                        "⚠️ 조선·정유·반도체 같은 순환주는 이익 피크에서 멀티플이 낮은 것이 "
-                        "정상이라, 괴리율 상위가 곧 저평가를 뜻하지 않을 수 있습니다. "
-                        "'주의' 열의 적자·표본부족 표시도 함께 보세요."
-                        "</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='color:#94A3B8;font-size:0.82rem;margin:6px 0;'>"
+                                f"{len(sel)}개 종목 · 수급은 <b>순매수 주식수 × 현재가</b>로 환산한 "
+                                f"억원 단위입니다(주가 차이로 인한 왜곡 제거)</div>",
+                                unsafe_allow_html=True)
 
-        with tab_sector:
-            st.markdown("<h3 style='color:#FFFFFF;'>🏢 업종별 수익 테마 순위</h3>", unsafe_allow_html=True)
-            if df.empty:
-                st.info("필터에 걸린 종목이 없어 업종 순위를 계산할 수 없습니다.")
-            elif '업종' in df.columns:
-                ind_df = df.groupby('업종')['영업이익_최대성장률'].mean().reset_index()
-                ind_df.rename(columns={'영업이익_최대성장률': '평균_성장률'}, inplace=True)
-                ind_df = ind_df.sort_values('평균_성장률', ascending=False).reset_index(drop=True)
+                    if sel.empty:
+                        st.info("조건에 맞는 종목이 없습니다.")
+                    else:
+                        v = sel.head(300).copy()
+                        v['링크'] = v['종목코드'].apply(
+                            naver_item_url)
+                        for src, dst, lab in (('OBV_trend', 'OBV', OBV_LABEL),
+                                              ('MACD_signal', 'MACD', MACD_LABEL),
+                                              ('MA_align', '이평', MA_LABEL)):
+                            if src in v.columns:
+                                v[dst] = v[src].map(lab).fillna('-')
+                        v['판정표시'] = v['판정아이콘'] + ' ' + v['판정']
+                        want_cols = [('판정표시', '판정'), ('종목명', '종목명'), ('링크', '링크'),
+                                     ('시장', '시장'), ('업종', '업종'), ('현재가', '현재가'),
+                                     ('외인금액_5d', '외인5일(억)'), ('기관금액_5d', '기관5일(억)'),
+                                     ('수급합_5d', '합계5일(억)'), ('수급합_20d', '합계20일(억)'),
+                                     ('RSI', 'RSI'), ('OBV', 'OBV'), ('MACD', 'MACD'),
+                                     ('이평', '이평'), ('시가총액', '시총(억)'),
+                                     ('종합성장점수', '성장점수')]
+                        pairs = [(c, lbl) for c, lbl in want_cols if c in v.columns]
+                        show = v[[c for c, _ in pairs]].copy()
+                        show.columns = [lbl for _, lbl in pairs]
+                        st.dataframe(
+                            show, use_container_width=True, hide_index=True, height=620,
+                            column_config={
+                                '링크': st.column_config.LinkColumn('네이버', display_text='📈'),
+                                '현재가': st.column_config.NumberColumn(format="%d"),
+                                '외인5일(억)': st.column_config.NumberColumn(format="%.1f"),
+                                '기관5일(억)': st.column_config.NumberColumn(format="%.1f"),
+                                '합계5일(억)': st.column_config.NumberColumn(format="%.1f"),
+                                '합계20일(억)': st.column_config.NumberColumn(format="%.1f"),
+                                'RSI': st.column_config.NumberColumn(format="%.1f"),
+                                '시총(억)': st.column_config.NumberColumn(format="%d"),
+                                '성장점수': st.column_config.NumberColumn(format="%d"),
+                            })
+                        if len(sel) > 300:
+                            st.caption(f"상위 300개만 표시 (전체 {len(sel)}개)")
+                        st.markdown(
+                            "<div class='sect-note'>"
+                            "판정은 <b>OBV·RSI·MACD 3종 매트릭스</b>로 매겨집니다 — 카드의 종합판정과 동일합니다. "
+                            "수급 <b>+</b>는 순매수(매집), <b>−</b>는 순매도(분산)입니다.<br>"
+                            "⚠️ 수급은 5·20일 누적일 뿐 매수 주체의 의도를 알려주지 않습니다. "
+                            "지수 편입·차익거래·ETF 리밸런싱으로 인한 기계적 매수가 섞입니다."
+                            "</div>", unsafe_allow_html=True)
 
-                for i, irow in ind_df.iterrows():
-                    ind_name = irow['업종']
-                    avg_score = irow['평균_성장률']
-                    comp_df = df[df['업종'] == ind_name].sort_values('영업이익_최대성장률', ascending=False)
-                    chart_data = prefetch_candles(comp_df.head(10)['종목코드'])
-                    with st.expander(f"🏅 {i+1}위: {ind_name} (평균 영업이익 성장률: {avg_score:,.1f}% / {len(comp_df)}종목)"):
-                        st.markdown("<div style='margin-bottom:8px;font-size:0.9rem;color:#A0AEC0;'>상위 10개 종목만 표시됩니다.</div>", unsafe_allow_html=True)
-                        for rank, (_, row) in enumerate(comp_df.head(10).iterrows(), start=1):
-                            render_stock_card(row, rank, chart_data.get(str(row['종목코드']).zfill(6)))
-            else:
-                st.warning("데이터에 '업종' 정보가 포함되어 있지 않습니다.")
-
-        with tab_table:
-            st.markdown("### 📊 전체 데이터 테이블")
-            dc1, dc2, dc3 = st.columns(3)
-            with dc1:
-                csv = df.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
-                st.download_button("📥 CSV 다운로드", data=csv, file_name=f"high_growth_{now_kst().strftime('%Y%m%d_%H%M')}.csv", mime="text/csv", use_container_width=True)
-            with dc2:
+            # ════════════════════════════════════════════════════════
+            # 🔥 주도업종 저평가 — 강한 업종 Top10 → 업종 전 종목 괴리율
+            # ════════════════════════════════════════════════════════
+        if tab_lead.open:
+            with tab_lead:
+                st.markdown("<h3 style='color:#FFFFFF;'>🔥 주도업종 → 저평가 종목 발굴</h3>",
+                            unsafe_allow_html=True)
                 try:
-                    buf = io.BytesIO()
-                    ILLEGAL_CHARACTERS_RE = re.compile(r'[\000-\010]|[\013-\014]|[\016-\037]')
-                    df_clean = df.copy()
-                    for col in df_clean.columns:
-                        if df_clean[col].dtype == 'object':
-                            df_clean[col] = df_clean[col].apply(lambda x: ILLEGAL_CHARACTERS_RE.sub('', str(x)) if x is not None else x)
-
-                    with pd.ExcelWriter(buf, engine='openpyxl') as w:
-                        df_clean.to_excel(w, index=False, sheet_name='초고성장종목')
-
-                    st.download_button(
-                        label="📥 Excel 다운로드",
-                        data=buf.getvalue(),
-                        file_name=f"high_growth_{now_kst().strftime('%Y%m%d_%H%M')}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True
-                    )
+                    from sector_leaders import rank_sectors, sector_detail
+                    lead = rank_sectors(all_df, snapshot_dir=SNAPSHOT_DIR, top_n=10)
                 except Exception as e:
-                    st.error(f"엑셀 오류: {str(e)}", icon="🚨")
-            with dc3:
-                # 누적 기록 엑셀 다운로드
-                history_data = build_history_excel()
-                if history_data:
-                    st.download_button(
-                        label="📥 누적기록 Excel",
-                        data=history_data,
-                        file_name=f"accumulation_{now_kst().strftime('%Y%m%d_%H%M')}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True
+                    lead = pd.DataFrame()
+                    st.error(f"업종 랭킹 계산 실패: {e}")
+
+                if lead.empty:
+                    st.info("업종 데이터가 부족합니다. 새벽 자동 크롤 후 다시 확인해주세요.")
+                else:
+                    used = lead.attrs.get('components_used', [])
+                    mdays = lead.attrs.get('momentum_days', 0)
+                    st.markdown(
+                        f"<div style='color:#94A3B8;font-size:0.8rem;margin-bottom:8px;'>"
+                        f"강도 점수 = {' + '.join(used) if used else '-'} "
+                        f"(결측 요소는 제외 후 재정규화)"
+                        + (f" · 모멘텀 {mdays}일 구간" if mdays else "")
+                        + "</div>", unsafe_allow_html=True)
+
+                    lead_view = lead[['rank', '업종', 'score', 'tech', 'momentum_pct',
+                                      'activity', 'n_stocks']].copy()
+                    lead_view.columns = ['순위', '업종', '강도점수', '기술강세',
+                                         '모멘텀%', '거래활발도', '종목수']
+                    st.dataframe(lead_view, use_container_width=True, hide_index=True,
+                                 height=390)
+
+                    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+                    sel_sector = st.selectbox(
+                        "업종 선택 → 해당 업종 전 종목의 저평가 순위",
+                        options=lead['업종'].tolist(), index=0, key='lead_sector')
+
+                    with st.spinner(f"{sel_sector} 업종 종목 분석 중..."):
+                        det = sector_detail(sel_sector, all_df)
+
+                    if det.empty:
+                        st.info("해당 업종에서 계산 가능한 종목이 없습니다.")
+                    else:
+                        det = det.copy()
+                        det['링크'] = det['종목코드'].apply(
+                            naver_item_url)
+                        view = det[['종목명', '링크', '시장', '현재가', '시가총액',
+                                    '적정시총_보정', '괴리율_보정', '괴리율', '기준연도',
+                                    '피어멀티플', '성장프리미엄', '영업이익성장', '매출성장',
+                                    'n_peers', '경고']].copy()
+                        view.columns = ['종목명', '링크', '시장', '현재가', '현재시총(억)',
+                                        '적정시총(억)', '괴리율%', '단순괴리율%', '기준',
+                                        '피어멀티플', '성장배수', '영업이익성장%', '매출성장%',
+                                        '피어수', '주의']
+                        st.dataframe(
+                            view, use_container_width=True, hide_index=True, height=560,
+                            column_config={
+                                '링크': st.column_config.LinkColumn('네이버', display_text='📈'),
+                                '현재가': st.column_config.NumberColumn(format="%d"),
+                                '현재시총(억)': st.column_config.NumberColumn(format="%d"),
+                                '적정시총(억)': st.column_config.NumberColumn(format="%d"),
+                                '괴리율%': st.column_config.NumberColumn(format="%.1f"),
+                                '단순괴리율%': st.column_config.NumberColumn(format="%.1f"),
+                                '피어멀티플': st.column_config.NumberColumn(format="%.1f"),
+                                '성장배수': st.column_config.NumberColumn(format="%.2f"),
+                                '영업이익성장%': st.column_config.NumberColumn(format="%.1f"),
+                                '매출성장%': st.column_config.NumberColumn(format="%.1f"),
+                            })
+                        st.markdown(
+                            "<div class='sect-note'>"
+                            "적정시총 = 동일업종 피어 멀티플(EV/영업이익) × 대상 영업이익 − 순차입금. "
+                            "<b>괴리율%</b>는 성장 프리미엄을 반영한 값(성장배수), "
+                            "<b>단순괴리율%</b>는 미반영 값 — 두 값 차이가 성장 효과입니다. "
+                            "기준은 2028E 우선, 없으면 27E→26E→25E로 폴백합니다.<br>"
+                            "⚠️ 조선·정유·반도체 같은 순환주는 이익 피크에서 멀티플이 낮은 것이 "
+                            "정상이라, 괴리율 상위가 곧 저평가를 뜻하지 않을 수 있습니다. "
+                            "'주의' 열의 적자·표본부족 표시도 함께 보세요."
+                            "</div>", unsafe_allow_html=True)
+
+        if tab_sector.open:
+            with tab_sector:
+                st.markdown("<h3 style='color:#FFFFFF;'>🏢 업종별 수익 테마 순위</h3>", unsafe_allow_html=True)
+                if df.empty:
+                    st.info("필터에 걸린 종목이 없어 업종 순위를 계산할 수 없습니다.")
+                elif '업종' in df.columns:
+                    ind_df = df.groupby('업종')['영업이익_최대성장률'].mean().reset_index()
+                    ind_df.rename(columns={'영업이익_최대성장률': '평균_성장률'}, inplace=True)
+                    ind_df = ind_df.sort_values('평균_성장률', ascending=False).reset_index(drop=True)
+
+                    sector_counts = df['업종'].value_counts()
+                    sector_labels = {
+                        row['업종']: (
+                            f"{i + 1}위 · {row['업종']} "
+                            f"(평균 {row['평균_성장률']:,.1f}% / {sector_counts[row['업종']]}종목)"
+                        )
+                        for i, row in ind_df.iterrows()
+                    }
+                    ind_name = st.selectbox(
+                        "순위를 확인할 업종",
+                        ind_df['업종'].tolist(),
+                        format_func=lambda name: sector_labels[name],
+                        key="sector_choice",
                     )
+                    if ind_name:
+                        comp_df = df[df['업종'] == ind_name].sort_values('영업이익_최대성장률', ascending=False).head(10)
+                        chart_data = prefetch_candles(comp_df['종목코드'])
+                        st.caption("선택한 업종의 상위 10개 종목을 표시합니다.")
+                        for rank, (_, row) in enumerate(comp_df.iterrows(), start=1):
+                            render_stock_card(row, rank, chart_data.get(str(row['종목코드']).zfill(6)))
                 else:
-                    st.button("📥 누적기록 없음", disabled=True, use_container_width=True)
+                    st.warning("데이터에 '업종' 정보가 포함되어 있지 않습니다.")
 
-            show_cols = ['종목명','종목코드','시장','현재가','Recent_Volume','거래량배수','시가총액','업종',
-                'PER','Forward_PER','PEG','PBR','ROE','부채비율','업종평균PER',
-                '시총구간_2028E','업종_2028E_멀티플_중앙값','멀티플기준_종목명_2028E','멀티플_피어수_2028E','멀티플_소스_2028E','적정시총_2028E','적정주가_2028E','괴리율_2028E',
-                'Revision_Score','Revision_OP_2026','Revision_OP_2027','Revision_OP_2028','업종_Revision_중앙값','업종_Revision_표본수','데이터_가용성',
-                '매출액_성장률_2025','매출액_성장률_2026','매출액_성장률_2027','매출액_성장률_2028','매출액_최대성장률',
-                '영업이익_성장률_2025','영업이익_성장률_2026','영업이익_성장률_2027','영업이익_성장률_2028','영업이익_최대성장률','종합성장점수']
-            ac = [c for c in show_cols if c in df.columns]
-            st.dataframe(df[ac], use_container_width=True, height=600, column_config={
-                "종목명": st.column_config.TextColumn("종목명", width="medium"),
-                "종목코드": st.column_config.TextColumn("코드", width="small"),
-                "현재가": st.column_config.NumberColumn("현재가", format="%d원"),
-                "Recent_Volume": st.column_config.NumberColumn("거래량", format="%d"),
-                "거래량배수": st.column_config.NumberColumn("거래량배수(20d)", format="%.1fx"),
-                "시가총액": st.column_config.NumberColumn("시총(억)", format="%d"),
-                "PER": st.column_config.NumberColumn("PER(실적)", format="%.1f", help="시가총액 / 최근 가용 연간 지배주주 순이익. TTM과 다를 수 있습니다."),
-                "Forward_PER": st.column_config.NumberColumn("Fwd PER", format="%.1f"),
-                "PEG": st.column_config.NumberColumn("PEG", format="%.2f"),
-                "PBR": st.column_config.NumberColumn("PBR", format="%.2f"),
-                "ROE": st.column_config.NumberColumn("ROE", format="%.1f%%"),
-                "부채비율": st.column_config.NumberColumn("부채비율", format="%.0f%%", help="가장 최근 분기 부채비율(%) - 네이버 금융"),
-                "업종평균PER": st.column_config.NumberColumn("업종PER", format="%.1f"),
-                "시총구간_2028E": st.column_config.TextColumn("구간", help="대형(5조+)/중형(1~5조)/소형(~1조)"),
-                "업종_2028E_멀티플_중앙값": st.column_config.NumberColumn("기준멀티플'28E", format="%.1fx", help="(업종+구간)→업종→시장 순서로 시총 상위 5개(본인 제외) 종목의 멀티플 중앙값"),
-                "멀티플기준_종목명_2028E": st.column_config.TextColumn("대표종목", help="피어 셋 중 시총 1위 종목명"),
-                "멀티플_피어수_2028E": st.column_config.NumberColumn("피어수", format="%d", help="중앙값 산정에 사용된 피어 개수 (최대 5)"),
-                "멀티플_소스_2028E": st.column_config.TextColumn("기준소스", help="bucket=업종+구간 / sector=업종 폴백 / market=시장 폴백"),
-                "적정시총_2028E": st.column_config.NumberColumn("적정시총'28E(억)", format="%.0f", help="업종 멀티플 중앙값 × 본 종목 2028E 영업이익"),
-                "적정주가_2028E": st.column_config.NumberColumn("적정주가'28E(원)", format="%.0f", help="현재가 × (적정시총/현재시총), 발행주식수 동일 가정"),
-                "괴리율_2028E": st.column_config.NumberColumn("괴리율'28E", format="%+.1f%%", help="(적정시총/현재시총-1)×100, 양수=저평가"),
-                "Revision_Score": st.column_config.NumberColumn("Revision", format="%+.1f%%", help="30일 전 vs 현재 영업이익 컨센서스 변화율의 가중 평균 (2026E×0.5 + 2027E×0.3 + 2028E×0.2)"),
-                "Revision_OP_2026": st.column_config.NumberColumn("Rev'26", format="%+.1f%%", help="2026E 영업이익 컨센서스 30일 변화율"),
-                "Revision_OP_2027": st.column_config.NumberColumn("Rev'27", format="%+.1f%%", help="2027E 영업이익 컨센서스 30일 변화율"),
-                "Revision_OP_2028": st.column_config.NumberColumn("Rev'28", format="%+.1f%%", help="2028E 영업이익 컨센서스 30일 변화율"),
-                "업종_Revision_중앙값": st.column_config.NumberColumn("업종모멘텀", format="%+.1f%%", help="같은 업종 종목들의 Revision Score 중앙값 (n≥5). 테마 진입 시그널"),
-                "업종_Revision_표본수": st.column_config.NumberColumn("업종표본", format="%d", help="업종 모멘텀 산정에 쓰인 valid 종목 수"),
-                "매출액_최대성장률": st.column_config.NumberColumn("매출MAX%", format="%.1f%%"),
-                "영업이익_최대성장률": st.column_config.NumberColumn("영업이익MAX%", format="%.1f%%"),
-                "종합성장점수": st.column_config.NumberColumn("종합점수", format="%.0f"),
-            })
+        if tab_table.open:
+            with tab_table:
+                st.markdown("### 📊 전체 데이터 테이블")
+                dc1, dc2, dc3 = st.columns(3)
+                with dc1:
+                    csv = df.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
+                    st.download_button("📥 CSV 다운로드", data=csv, file_name=f"high_growth_{now_kst().strftime('%Y%m%d_%H%M')}.csv", mime="text/csv", use_container_width=True)
+                with dc2:
+                    try:
+                        buf = io.BytesIO()
+                        ILLEGAL_CHARACTERS_RE = re.compile(r'[\000-\010]|[\013-\014]|[\016-\037]')
+                        df_clean = df.copy()
+                        for col in df_clean.columns:
+                            if df_clean[col].dtype == 'object':
+                                df_clean[col] = df_clean[col].apply(lambda x: ILLEGAL_CHARACTERS_RE.sub('', str(x)) if x is not None else x)
 
-        with tab_hist:
-            st.markdown("### 📅 누적 기록 (거래량 100만 이상)")
-            history = load_history()
-            if not history:
-                st.info("아직 누적 기록이 없습니다. 새벽 자동 크롤이 돌면 채워집니다.")
-            else:
-                for cat_name in ['미래가시성핵심성장', '매출+영업이익환산점수', '매출1년최대성장률', '영업이익1년최대성장률']:
-                    cat_data = history.get(cat_name, {})
-                    dates = sorted(cat_data.keys())
-                    total_unique = len(set(s for d in dates for s in cat_data[d]))
-                    with st.expander(f"📌 {cat_name} ({len(dates)}일 기록 / 누적 {total_unique}종목)"):
-                        if not dates:
-                            st.write("기록 없음")
-                        else:
-                            max_len = max(len(cat_data[d]) for d in dates)
-                            data = {}
-                            for d in dates:
-                                stocks = cat_data[d]
-                                padded = stocks + [''] * (max_len - len(stocks))
-                                data[d] = padded
-                            st.dataframe(pd.DataFrame(data), use_container_width=True, height=400)
+                        with pd.ExcelWriter(buf, engine='openpyxl') as w:
+                            df_clean.to_excel(w, index=False, sheet_name='초고성장종목')
 
-                # 누적기록 엑셀 다운로드
-                history_data = build_history_excel()
-                if history_data:
-                    st.download_button(
-                        label="📥 누적기록 전체 Excel 다운로드",
-                        data=history_data,
-                        file_name=f"accumulation_{now_kst().strftime('%Y%m%d_%H%M')}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True
+                        st.download_button(
+                            label="📥 Excel 다운로드",
+                            data=buf.getvalue(),
+                            file_name=f"high_growth_{now_kst().strftime('%Y%m%d_%H%M')}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True
+                        )
+                    except Exception as e:
+                        st.error(f"엑셀 오류: {str(e)}", icon="🚨")
+                with dc3:
+                    # 누적 기록 엑셀 다운로드
+                    history_data = build_history_excel()
+                    if history_data:
+                        st.download_button(
+                            label="📥 누적기록 Excel",
+                            data=history_data,
+                            file_name=f"accumulation_{now_kst().strftime('%Y%m%d_%H%M')}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True
+                        )
+                    else:
+                        st.button("📥 누적기록 없음", disabled=True, use_container_width=True)
+
+                show_cols = ['종목명','종목코드','시장','현재가','Recent_Volume','거래량배수','시가총액','업종',
+                    'PER','Forward_PER','PEG','PBR','ROE','부채비율','업종평균PER',
+                    '시총구간_2028E','업종_2028E_멀티플_중앙값','멀티플기준_종목명_2028E','멀티플_피어수_2028E','멀티플_소스_2028E','적정시총_2028E','적정주가_2028E','괴리율_2028E',
+                    'Revision_Score','Revision_OP_2026','Revision_OP_2027','Revision_OP_2028','업종_Revision_중앙값','업종_Revision_표본수','데이터_가용성',
+                    '매출액_성장률_2025','매출액_성장률_2026','매출액_성장률_2027','매출액_성장률_2028','매출액_최대성장률',
+                    '영업이익_성장률_2025','영업이익_성장률_2026','영업이익_성장률_2027','영업이익_성장률_2028','영업이익_최대성장률','종합성장점수']
+                ac = [c for c in show_cols if c in df.columns]
+                st.dataframe(df[ac], use_container_width=True, height=600, column_config={
+                    "종목명": st.column_config.TextColumn("종목명", width="medium"),
+                    "종목코드": st.column_config.TextColumn("코드", width="small"),
+                    "현재가": st.column_config.NumberColumn("현재가", format="%d원"),
+                    "Recent_Volume": st.column_config.NumberColumn("거래량", format="%d"),
+                    "거래량배수": st.column_config.NumberColumn("거래량배수(20d)", format="%.1fx"),
+                    "시가총액": st.column_config.NumberColumn("시총(억)", format="%d"),
+                    "PER": st.column_config.NumberColumn("PER(실적)", format="%.1f", help="시가총액 / 최근 가용 연간 지배주주 순이익. TTM과 다를 수 있습니다."),
+                    "Forward_PER": st.column_config.NumberColumn("Fwd PER", format="%.1f"),
+                    "PEG": st.column_config.NumberColumn("PEG", format="%.2f"),
+                    "PBR": st.column_config.NumberColumn("PBR", format="%.2f"),
+                    "ROE": st.column_config.NumberColumn("ROE", format="%.1f%%"),
+                    "부채비율": st.column_config.NumberColumn("부채비율", format="%.0f%%", help="가장 최근 분기 부채비율(%) - 네이버 금융"),
+                    "업종평균PER": st.column_config.NumberColumn("업종PER", format="%.1f"),
+                    "시총구간_2028E": st.column_config.TextColumn("구간", help="대형(5조+)/중형(1~5조)/소형(~1조)"),
+                    "업종_2028E_멀티플_중앙값": st.column_config.NumberColumn("기준멀티플'28E", format="%.1fx", help="(업종+구간)→업종→시장 순서로 시총 상위 5개(본인 제외) 종목의 멀티플 중앙값"),
+                    "멀티플기준_종목명_2028E": st.column_config.TextColumn("대표종목", help="피어 셋 중 시총 1위 종목명"),
+                    "멀티플_피어수_2028E": st.column_config.NumberColumn("피어수", format="%d", help="중앙값 산정에 사용된 피어 개수 (최대 5)"),
+                    "멀티플_소스_2028E": st.column_config.TextColumn("기준소스", help="bucket=업종+구간 / sector=업종 폴백 / market=시장 폴백"),
+                    "적정시총_2028E": st.column_config.NumberColumn("적정시총'28E(억)", format="%.0f", help="업종 멀티플 중앙값 × 본 종목 2028E 영업이익"),
+                    "적정주가_2028E": st.column_config.NumberColumn("적정주가'28E(원)", format="%.0f", help="현재가 × (적정시총/현재시총), 발행주식수 동일 가정"),
+                    "괴리율_2028E": st.column_config.NumberColumn("괴리율'28E", format="%+.1f%%", help="(적정시총/현재시총-1)×100, 양수=저평가"),
+                    "Revision_Score": st.column_config.NumberColumn("Revision", format="%+.1f%%", help="30일 전 vs 현재 영업이익 컨센서스 변화율의 가중 평균 (2026E×0.5 + 2027E×0.3 + 2028E×0.2)"),
+                    "Revision_OP_2026": st.column_config.NumberColumn("Rev'26", format="%+.1f%%", help="2026E 영업이익 컨센서스 30일 변화율"),
+                    "Revision_OP_2027": st.column_config.NumberColumn("Rev'27", format="%+.1f%%", help="2027E 영업이익 컨센서스 30일 변화율"),
+                    "Revision_OP_2028": st.column_config.NumberColumn("Rev'28", format="%+.1f%%", help="2028E 영업이익 컨센서스 30일 변화율"),
+                    "업종_Revision_중앙값": st.column_config.NumberColumn("업종모멘텀", format="%+.1f%%", help="같은 업종 종목들의 Revision Score 중앙값 (n≥5). 테마 진입 시그널"),
+                    "업종_Revision_표본수": st.column_config.NumberColumn("업종표본", format="%d", help="업종 모멘텀 산정에 쓰인 valid 종목 수"),
+                    "매출액_최대성장률": st.column_config.NumberColumn("매출MAX%", format="%.1f%%"),
+                    "영업이익_최대성장률": st.column_config.NumberColumn("영업이익MAX%", format="%.1f%%"),
+                    "종합성장점수": st.column_config.NumberColumn("종합점수", format="%.0f"),
+                })
+
+        if tab_hist.open:
+            with tab_hist:
+                st.markdown("### 📅 누적 기록 (거래량 100만 이상)")
+                history = load_history()
+                if not history:
+                    st.info("아직 누적 기록이 없습니다. 새벽 자동 크롤이 돌면 채워집니다.")
+                else:
+                    for cat_name in ['미래가시성핵심성장', '매출+영업이익환산점수', '매출1년최대성장률', '영업이익1년최대성장률']:
+                        cat_data = history.get(cat_name, {})
+                        dates = sorted(cat_data.keys())
+                        total_unique = len(set(s for d in dates for s in cat_data[d]))
+                        with st.expander(f"📌 {cat_name} ({len(dates)}일 기록 / 누적 {total_unique}종목)"):
+                            if not dates:
+                                st.write("기록 없음")
+                            else:
+                                max_len = max(len(cat_data[d]) for d in dates)
+                                data = {}
+                                for d in dates:
+                                    stocks = cat_data[d]
+                                    padded = stocks + [''] * (max_len - len(stocks))
+                                    data[d] = padded
+                                st.dataframe(pd.DataFrame(data), use_container_width=True, height=400)
+
+                    # 누적기록 엑셀 다운로드
+                    history_data = build_history_excel()
+                    if history_data:
+                        st.download_button(
+                            label="📥 누적기록 전체 Excel 다운로드",
+                            data=history_data,
+                            file_name=f"accumulation_{now_kst().strftime('%Y%m%d_%H%M')}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True
+                        )
+
+            # ────────────────────────────────────────────────────────
+            # 모의투자 탭 — paper_trading.py 결과 뷰어
+            # ────────────────────────────────────────────────────────
+        if tab_paper.open:
+            with tab_paper:
+                st.markdown("### 💰 모의투자 (가상 1억원 · 주 1회 자동 리밸런싱)")
+                _pt_dir = os.path.join(DATA_DIR, 'paper_trading')
+                _pf = None
+                _hist = []
+                _trades = []
+                try:
+                    with open(os.path.join(_pt_dir, 'portfolio.json'), encoding='utf-8') as f:
+                        _pf = json.load(f)
+                    with open(os.path.join(_pt_dir, 'history.json'), encoding='utf-8') as f:
+                        _hist = json.load(f)
+                    with open(os.path.join(_pt_dir, 'trades.json'), encoding='utf-8') as f:
+                        _trades = json.load(f)
+                except Exception:
+                    pass
+
+                if not _pf or not _hist:
+                    st.info("모의투자 데이터가 아직 없습니다. 새벽 자동 크롤이 돌면 자동으로 시작됩니다.")
+                else:
+                    _last = _hist[-1]
+                    _init_cap = 100_000_000
+                    _total = _last.get('total', _init_cap)
+                    _ret = _last.get('ret_pct', 0.0)
+                    pc1, pc2, pc3, pc4 = st.columns(4)
+                    pc1.metric("평가액", f"{_total:,.0f}원", f"{_ret:+.2f}%")
+                    pc2.metric("현금", f"{_last.get('cash', 0):,.0f}원")
+                    pc3.metric("시작일", _pf.get('started', '-'))
+                    pc4.metric("마지막 리밸런싱", _pf.get('last_rebalance', '-'))
+
+                    # 평가액 곡선
+                    if len(_hist) >= 2:
+                        _curve = pd.DataFrame(
+                            {'평가액': [e['total'] for e in _hist]},
+                            index=pd.to_datetime([e['date'] for e in _hist]),
+                        )
+                        st.line_chart(_curve, height=260)
+                    else:
+                        st.caption("평가액 곡선은 이틀 이상 기록이 쌓이면 표시됩니다.")
+
+                    # 보유 종목
+                    st.markdown("#### 보유 종목")
+                    _rows = []
+                    for _c, _hh in (_last.get('holdings') or {}).items():
+                        _p = _hh.get('price') or _hh.get('avg') or 0
+                        _avg = _hh.get('avg') or 0
+                        _rows.append({
+                            '종목명': _hh.get('name', ''), '종목코드': _c,
+                            '보유수량': _hh.get('shares', 0),
+                            '매수가': _avg, '현재가': _p,
+                            '수익률(%)': round((_p / _avg - 1) * 100, 2) if _avg else 0,
+                            '평가금액': int((_p or 0) * _hh.get('shares', 0)),
+                        })
+                    if _rows:
+                        st.dataframe(pd.DataFrame(_rows), use_container_width=True, hide_index=True)
+                    else:
+                        st.caption("보유 종목 없음 (전량 현금)")
+
+                    # 거래 일지
+                    st.markdown("#### 거래 일지 (사유 포함)")
+                    if _trades:
+                        _tdf = pd.DataFrame(_trades)[::-1]
+                        _tdf = _tdf.rename(columns={
+                            'date': '날짜', 'action': '구분', 'shares': '수량',
+                            'price': '가격', 'amount': '금액', 'reason': '사유'})
+                        st.dataframe(_tdf, use_container_width=True, hide_index=True, height=360)
+                    else:
+                        st.caption("거래 기록 없음")
+
+                    st.caption(
+                        "매도 룰: 손절 -15% · 트레일링 고점 -20% · 익절 +50%/+100% 각 1/3 · "
+                        "시간손절 26주 & +10% 미만 · 순위탈락(상위 20위 밖 & 10점 이상 열위) | "
+                        "선정: 성장 30 + 밸류 20 + 수급 20 + 기술 20 + 유동성 10, 업종당 최대 2종목"
                     )
-
-        # ────────────────────────────────────────────────────────
-        # 모의투자 탭 — paper_trading.py 결과 뷰어
-        # ────────────────────────────────────────────────────────
-        with tab_paper:
-            st.markdown("### 💰 모의투자 (가상 1억원 · 주 1회 자동 리밸런싱)")
-            _pt_dir = os.path.join(DATA_DIR, 'paper_trading')
-            _pf = None
-            _hist = []
-            _trades = []
-            try:
-                with open(os.path.join(_pt_dir, 'portfolio.json'), encoding='utf-8') as f:
-                    _pf = json.load(f)
-                with open(os.path.join(_pt_dir, 'history.json'), encoding='utf-8') as f:
-                    _hist = json.load(f)
-                with open(os.path.join(_pt_dir, 'trades.json'), encoding='utf-8') as f:
-                    _trades = json.load(f)
-            except Exception:
-                pass
-
-            if not _pf or not _hist:
-                st.info("모의투자 데이터가 아직 없습니다. 새벽 자동 크롤이 돌면 자동으로 시작됩니다.")
-            else:
-                _last = _hist[-1]
-                _init_cap = 100_000_000
-                _total = _last.get('total', _init_cap)
-                _ret = _last.get('ret_pct', 0.0)
-                pc1, pc2, pc3, pc4 = st.columns(4)
-                pc1.metric("평가액", f"{_total:,.0f}원", f"{_ret:+.2f}%")
-                pc2.metric("현금", f"{_last.get('cash', 0):,.0f}원")
-                pc3.metric("시작일", _pf.get('started', '-'))
-                pc4.metric("마지막 리밸런싱", _pf.get('last_rebalance', '-'))
-
-                # 평가액 곡선
-                if len(_hist) >= 2:
-                    _curve = pd.DataFrame(
-                        {'평가액': [e['total'] for e in _hist]},
-                        index=pd.to_datetime([e['date'] for e in _hist]),
-                    )
-                    st.line_chart(_curve, height=260)
-                else:
-                    st.caption("평가액 곡선은 이틀 이상 기록이 쌓이면 표시됩니다.")
-
-                # 보유 종목
-                st.markdown("#### 보유 종목")
-                _rows = []
-                for _c, _hh in (_last.get('holdings') or {}).items():
-                    _p = _hh.get('price') or _hh.get('avg') or 0
-                    _avg = _hh.get('avg') or 0
-                    _rows.append({
-                        '종목명': _hh.get('name', ''), '종목코드': _c,
-                        '보유수량': _hh.get('shares', 0),
-                        '매수가': _avg, '현재가': _p,
-                        '수익률(%)': round((_p / _avg - 1) * 100, 2) if _avg else 0,
-                        '평가금액': int((_p or 0) * _hh.get('shares', 0)),
-                    })
-                if _rows:
-                    st.dataframe(pd.DataFrame(_rows), use_container_width=True, hide_index=True)
-                else:
-                    st.caption("보유 종목 없음 (전량 현금)")
-
-                # 거래 일지
-                st.markdown("#### 거래 일지 (사유 포함)")
-                if _trades:
-                    _tdf = pd.DataFrame(_trades)[::-1]
-                    _tdf = _tdf.rename(columns={
-                        'date': '날짜', 'action': '구분', 'shares': '수량',
-                        'price': '가격', 'amount': '금액', 'reason': '사유'})
-                    st.dataframe(_tdf, use_container_width=True, hide_index=True, height=360)
-                else:
-                    st.caption("거래 기록 없음")
-
-                st.caption(
-                    "매도 룰: 손절 -15% · 트레일링 고점 -20% · 익절 +50%/+100% 각 1/3 · "
-                    "시간손절 26주 & +10% 미만 · 순위탈락(상위 20위 밖 & 10점 이상 열위) | "
-                    "선정: 성장 30 + 밸류 20 + 수급 20 + 기술 20 + 유동성 10, 업종당 최대 2종목"
-                )
     else:
         st.markdown("""
         <div style="text-align:center; padding:60px 20px;">

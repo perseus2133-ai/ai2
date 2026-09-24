@@ -78,7 +78,7 @@ def render_watchlist(all_df, render_card, prepare, data_as_of):
     query = st.text_input('관심종목 검색', key='watch_search').strip().lower()
     entries = [e for e in entries.values() if query in (e['name'] + e['code']).lower()]
     st.caption(f'{len(entries)}개 · 최신 등록순 · 재등록 시 기준일과 기준 가격이 새로 설정됩니다.')
-    page = st.number_input('관심목록 페이지', min_value=1, max_value=max(1, (len(entries)+9)//10), value=1, step=1)
+    page = st.number_input('관심목록 페이지', min_value=1, max_value=max(1, (len(entries)+9)//10), value=1, step=1, key='watch_page')
     entries = entries[(page-1)*10:page*10]
     charts = prefetch_candles([e['code'] for e in entries])
     current = all_df.copy()
