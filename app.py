@@ -740,13 +740,16 @@ div[data-testid="stVerticalBlock"] > div:has(div.element-container) {
 .metric-value { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 1.2rem; line-height: 1.2; color: #FFFFFF !important; }
 .metric-value.metric-time { font-size: 1.05rem; }
 
-/* Streamlit의 tablist 부모는 높이가 탭 행만큼이므로 그 부모를 고정한다. */
-[data-testid="stTabs"] div:has(> [role="tablist"]) {
+/* 구버전의 탭 행 전용 래퍼만 고정한다. 본문까지 담은 새 버전 래퍼는 제외한다. */
+[data-testid="stTabs"] div:has(> [role="tablist"]):not(:has([role="tabpanel"])) {
     position: sticky !important;
     top: 0;
     z-index: 100;
 }
 [data-testid="stTabs"] [role="tablist"] {
+    position: sticky !important;
+    top: 0;
+    z-index: 100;
     background: #263647 !important;
     border-bottom: 1px solid #66788B;
     box-shadow: 0 3px 10px rgba(0, 0, 0, 0.22);
@@ -779,10 +782,11 @@ div.stButton > button:hover, div.stDownloadButton > button:hover, button[kind="s
     transform: translateY(-2px);
 }
 
-div[data-baseweb="tab-list"] {
+[data-testid="stTabs"] [role="tablist"] {
     gap: 8px;
 }
-button[data-baseweb="tab"] {
+[data-testid="stTabs"] [role="tab"] {
+    color: #EAF2FC !important;
     background: linear-gradient(135deg, #2D3139, #3E4A59) !important;
     border: 1px solid #4C566A !important;
     border-radius: 10px !important;
@@ -791,26 +795,25 @@ button[data-baseweb="tab"] {
     transition: all 0.3s ease !important;
     margin-right: 5px;
 }
-button[data-baseweb="tab"] > div[data-testid="stMarkdownContainer"] > p {
+[data-testid="stTabs"] [role="tab"] * {
     color: #EAF2FC !important;
     font-weight: 700 !important;
     font-size: 1rem !important;
 }
-button[data-baseweb="tab"]:hover {
-    transform: translateY(-3px);
+[data-testid="stTabs"] [role="tab"]:hover {
     box-shadow: 0 10px 15px -3px rgba(0,0,0,0.4) !important;
     border-color: #A0AEC0 !important;
 }
-button[data-baseweb="tab"]:hover > div[data-testid="stMarkdownContainer"] > p,
-button[data-baseweb="tab"]:focus-visible > div[data-testid="stMarkdownContainer"] > p {
+[data-testid="stTabs"] [role="tab"]:hover *,
+[data-testid="stTabs"] [role="tab"]:focus-visible * {
     color: #FFFFFF !important;
 }
-button[data-baseweb="tab"][aria-selected="true"] {
+[data-testid="stTabs"] [role="tab"][aria-selected="true"] {
     background: linear-gradient(135deg, #1D3557, #457B9D) !important;
     border-color: #62efff !important;
     box-shadow: inset 0 2px 4px rgba(0,0,0,0.1), 0 6px 12px rgba(98, 239, 255, 0.2) !important;
 }
-button[data-baseweb="tab"][aria-selected="true"] > div[data-testid="stMarkdownContainer"] > p {
+[data-testid="stTabs"] [role="tab"][aria-selected="true"] * {
     color: #62EFFF !important;
     font-weight: 900 !important;
     font-size: 1.02rem !important;
@@ -889,14 +892,12 @@ header[data-testid="stHeader"] [data-testid="stExpandSidebarButton"] { pointer-e
     }
     div[data-baseweb="tab-list"]::-webkit-scrollbar,
     [data-testid="stTabs"] [role="tablist"]::-webkit-scrollbar { display: none; }
-    button[data-baseweb="tab"], button[role="tab"] {
+    [data-testid="stTabs"] [role="tab"] {
         padding: 8px 12px !important; flex: 0 0 auto !important; white-space: nowrap;
         margin-right: 0 !important;
     }
-    button[data-baseweb="tab"] > div[data-testid="stMarkdownContainer"] > p,
-    button[role="tab"] * { font-size: 0.85rem !important; }
-    button[data-baseweb="tab"][aria-selected="true"] > div[data-testid="stMarkdownContainer"] > p,
-    button[role="tab"][aria-selected="true"] * { font-size: 0.88rem !important; }
+    [data-testid="stTabs"] [role="tab"] * { font-size: 0.85rem !important; }
+    [data-testid="stTabs"] [role="tab"][aria-selected="true"] * { font-size: 0.88rem !important; }
 
     /* 상단 요약 메트릭 카드 — 4개가 좁게 들어가도 숫자가 잘리지 않게 */
     .metric-card { padding: 7px 5px; }
