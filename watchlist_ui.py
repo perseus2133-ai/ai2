@@ -22,6 +22,21 @@ def initialize(base_dir):
         st.error('관심목록 저장소를 읽을 수 없습니다. 기존 파일은 초기화하지 않았습니다.')
 
 
+def _add_entry(row, candles, today):
+    """Run before Streamlit's normal button rerun so the list is current in that run."""
+    code = str(row['종목코드']).zfill(6)
+    st.session_state.pop(f'_watch_add_error_{code}', None)
+    try:
+        store = st.session_state['_watch_store']
+        candles = candles or load_candles(code, today)
+        entry = make_entry(row, candles, st.session_state.get('_watch_data_as_of', '확인 불가'))
+        store.add(entry)
+    except (ValueError, OSError) as exc:
+        st.session_state[f'_watch_add_error_{code}'] = str(exc)
+    except Exception:
+        st.session_state[f'_watch_add_error_{code}'] = '관심종목을 저장하지 못했습니다. 저장소 상태를 확인해 주세요.'
+
+
 def card_button(row, candles, today):
     store = st.session_state.get('_watch_store')
     if store is None:
@@ -30,17 +45,12 @@ def card_button(row, candles, today):
     counts = st.session_state['_watch_keys']
     counts[code] = counts.get(code, 0) + 1
     selected = code in st.session_state['_watch_entries']
-    if st.button('★ 관심종목 등록됨' if selected else '☆ 관심종목 등록',
-                 key=f'watch_add_{code}_{counts[code]}', disabled=selected):
-        try:
-            candles = candles or load_candles(code, today)
-            entry = make_entry(row, candles, st.session_state.get('_watch_data_as_of', '확인 불가'))
-            store.add(entry)
-            st.rerun()
-        except (ValueError, OSError) as exc:
-            st.error(str(exc))
-        except Exception:
-            st.error('관심종목을 저장하지 못했습니다. 저장소 상태를 확인해 주세요.')
+    st.button('★ 관심종목 등록됨' if selected else '☆ 관심종목 등록',
+              key=f'watch_add_{code}_{counts[code]}', disabled=selected,
+              on_click=_add_entry if not selected else None, args=(row, candles, today))
+    error = st.session_state.get(f'_watch_add_error_{code}')
+    if error:
+        st.error(error)
 
 
 def render_watchlist(all_df, render_card, prepare, data_as_of):

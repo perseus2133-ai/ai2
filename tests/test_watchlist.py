@@ -69,6 +69,7 @@ def ui_app():
     import pandas as pd
     import watchlist_ui as ui
     import app
+    st.session_state['_watch_render_count'] = st.session_state.get('_watch_render_count', 0) + 1
     ui.initialize('.')
     ui.st.session_state['_watch_data_as_of'] = '2026-09-24'
     frame = pd.read_csv('data/consensus_data.csv', dtype={'종목코드': str}).head(1)
@@ -91,8 +92,10 @@ def test_ui_add_rerun_missing_record_and_remove(tmp_path, monkeypatch):
     launcher = "import sys\nsys.path.insert(0, 'tests')\nfrom test_watchlist import ui_app\nui_app()"
     at = AppTest.from_string(launcher, default_timeout=30).run()
     assert not at.exception
+    before = at.session_state['_watch_render_count']
     next(b for b in at.button if b.label == '☆ 관심종목 등록').click().run()
     assert not at.exception
+    assert at.session_state['_watch_render_count'] == before + 1
     assert len(WatchStore(tmp_path / 'watch.sqlite3').entries()) == 1
     assert any('AI 의견' in m.value for m in at.markdown)
     at.checkbox(key='missing').check().run()
