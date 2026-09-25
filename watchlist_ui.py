@@ -198,20 +198,21 @@ def render_watchlist(all_df, render_card, prepare, data_as_of):
         st.info('기존 종목 카드의 ☆ 관심종목 등록 버튼으로 추가해 주세요.')
         _backup_controls(store)
         return
+    st.subheader('관심종목 한눈에 보기')
     query = st.text_input('관심종목 검색', key='watch_search').strip().lower()
     entries = [e for e in entries.values() if query in (e['name'] + e['code']).lower()]
     st.caption(f'{len(entries)}개 · 요약 정렬을 바꿔 비교할 수 있습니다. 재등록 시 기준일과 기준 가격이 새로 설정됩니다.')
     if not entries:
         st.info('검색 조건에 맞는 관심종목이 없습니다.')
         return
-    charts = prefetch_candles([e['code'] for e in entries])
+    with st.spinner('관심종목 요약에 사용할 시세를 불러오는 중입니다…'):
+        charts = prefetch_candles([e['code'] for e in entries])
     current = all_df.copy()
     current['__code'] = current['종목코드'].astype(str).str.zfill(6)
     rows_by_code = {row['__code']: row for _, row in current.iterrows()}
     summaries = {e['code']: summary(e, rows_by_code.get(e['code']), charts.get(e['code']), data_as_of)
                  for e in entries}
 
-    st.markdown('#### 관심종목 한눈에 보기')
     st.caption(f'현재가·시총 등 캐시 자료의 수집 시점은 {data_as_of}입니다. 60일 저점은 최근 60일(달력일) 완료 일봉의 장중 저가입니다. 캐시 가격이 없거나 일봉보다 오래되면 최근 완료 종가를 씁니다. 거래대금은 표시 가격×해당 거래량 추정치입니다.')
     st.caption('🚀 신호 확인: 완료 일봉 종가가 직전 20거래일 고점을 돌파하고 그날 추정 거래대금이 이전 20거래일 평균의 2배 이상이며, 다음 거래일에도 그 고점 위에서 마감한 경우입니다. 최근 5거래일 신호만 표시하며 종가가 고점 아래로 내려오면 해제합니다. 매수 신호가 아닌 관찰용입니다.')
     sort_options = {'거래량 증가순': 'volume_multiple', '거래대금순': 'turnover_eok',

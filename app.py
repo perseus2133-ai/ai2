@@ -36,7 +36,7 @@ KST = ZoneInfo("Asia/Seoul")
 # 페이지 설정
 # ============================================================
 st.set_page_config(
-    page_title="초고성장 종목 발굴 시스템",
+    page_title="퀀트 터미널 · 종목 발굴과 관심종목",
     page_icon="🚀",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -3624,7 +3624,7 @@ def main():
         for widget_key in (
             'card_sort', 'card_sort_order', 'rev_tab_thresh', 'search_q',
             'vd_scope', 'vd_side', 'vd_pick', 'vd_sort', 'vd_both',
-            'lead_sector', 'sector_choice', 'watch_search', 'watch_page',
+            'lead_sector', 'sector_choice', 'watch_search', 'watch_page', 'watch_summary_sort',
         ):
             if widget_key in st.session_state:
                 st.session_state[widget_key] = st.session_state[widget_key]
@@ -3637,7 +3637,7 @@ def main():
             "🔥 주도업종 저평가",
             "🏢 업종별 테마순위", "📊 데이터 테이블", "📅 누적 기록",
             "💰 모의투자",
-            "⭐ 관심종목",
+            "⭐ 관심종목 · 한눈에 보기",
         ], key="main_tabs", on_change="rerun")
 
         st.session_state['_watch_data_as_of'] = cache_ts.isoformat()
