@@ -50,6 +50,67 @@ def opinion(row, candles):
     return '\n\n'.join(parts)
 
 
+def summary(entry, row, candles, data_as_of):
+    """관심종목 요약 수치. 60일은 최근 완료 일봉일 기준 달력일이다."""
+    rows = candles.get('rows', []) if candles else []
+    valid = sorted(
+        (r for r in rows if number(r.get('close')) and number(r.get('low'))),
+        key=lambda r: r['date'],
+    )
+    latest = valid[-1] if valid else None
+    try:
+        end = dt.date.fromisoformat((candles or {}).get('end', ''))
+    except (TypeError, ValueError):
+        end = dt.date.fromisoformat(latest['date']) if latest else None
+    cutoff = (end - dt.timedelta(days=59)).isoformat() if end else None
+    recent = [r for r in valid if cutoff <= r['date'] <= end.isoformat()] if cutoff else []
+    low_row = min(recent, key=lambda r: number(r['low'])) if recent else None
+
+    cached_price = number(row.get('현재가')) if row is not None else None
+    cached_price = cached_price if cached_price and cached_price > 0 else None
+    close = number(latest['close']) if latest else None
+    try:
+        cache_date = dt.date.fromisoformat(str(data_as_of)[:10]).isoformat()
+    except ValueError:
+        cache_date = ''
+    use_cache = bool(cached_price and cache_date and (not latest or cache_date >= latest['date']))
+    price = cached_price if use_cache else close
+    price_source = '캐시 현재가' if use_cache else ('최근 완료 종가' if close else '시세 없음')
+    price_date = cache_date if use_cache else (latest['date'] if latest else '')
+    if not price_date or price_date < entry['price_date']:
+        price = None
+    base = number(entry.get('price'))
+    change = (price / base - 1) * 100 if price and base and base > 0 else None
+    low = number(low_row['low']) if low_row else None
+    low_change = (price / low - 1) * 100 if price and low and low > 0 else None
+
+    source = row if row is not None else entry.get('snapshot', {})
+    volume = (number(source.get('Recent_Volume')) if use_cache
+              else number(latest.get('volume')) if latest else None)
+    if use_cache:
+        avg_volume = number(source.get('평균거래량_20d'))
+    else:
+        prior_volumes = [number(r.get('volume')) for r in valid[-21:-1]]
+        avg_volume = (sum(prior_volumes) / 20
+                      if len(prior_volumes) == 20 and all(v is not None for v in prior_volumes)
+                      else None)
+    vol_multiple = volume / avg_volume if volume is not None and avg_volume and avg_volume > 0 else None
+    turnover = price * volume / 1e8 if price and volume is not None else None
+    return {
+        'price': price, 'price_source': price_source, 'price_date': price_date,
+        'since_selected_pct': change, 'low_60d': low,
+        'low_60d_date': low_row['date'] if low_row else '',
+        'since_low_pct': low_change, 'market_cap': number(source.get('시가총액')),
+        'volume': volume, 'volume_multiple': vol_multiple,
+        'turnover_eok': turnover,
+        'revenue_2026': number(source.get('매출액_2026')),
+        'revenue_2028': number(source.get('매출액_2028')),
+        'op_2026': number(source.get('영업이익_2026')),
+        'op_2028': number(source.get('영업이익_2028')),
+        'financial_source': '현재 수집 데이터' if row is not None else '지정 당시 저장값',
+    }
+
+
 def make_entry(row, candles, data_as_of, now=None):
     now = now or dt.datetime.now(ZoneInfo('Asia/Seoul'))
     code = str(row.get('종목코드', '')).zfill(6)
