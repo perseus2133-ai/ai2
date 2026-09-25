@@ -35,12 +35,32 @@ def _summary_html(entries, summaries):
     for entry in entries:
         code = entry['code']
         item = summaries[code]
+        signal = item.get('signal') or {'status': 'insufficient'}
+        status = signal.get('status')
+        if status == 'confirmed':
+            signal_label = '🚀 신호 확인'
+            signal_detail = f'{html.escape(signal["date"])} · {signal["turnover_multiple"]:.1f}배'
+            signal_class = 'confirmed'
+        elif status == 'pending':
+            signal_label = '⏳ 확인 대기'
+            signal_detail = f'{html.escape(signal["date"])} 돌파 · 다음 종가 대기'
+            signal_class = 'pending'
+        elif status in ('stale', 'insufficient'):
+            signal_label = '판정 보류'
+            signal_detail = '일봉 부족·지연' if status == 'stale' else '일봉·거래량 부족'
+            signal_class = 'unavailable'
+        else:
+            signal_label = '신호 없음'
+            signal_detail = '조건 미충족'
+            signal_class = 'none'
         name = html.escape(entry['name'])
         code_html = html.escape(code)
         source = html.escape(item['price_source'])
         price_date = html.escape(item['price_date'])
         low_date = html.escape(item['low_60d_date'])
         selected_date = html.escape(entry['selected_at'][:10])
+        selected_short = html.escape(entry['selected_at'][2:10].replace('-', '.'))
+        price_label = '현재' if item['price_source'] == '캐시 현재가' else '종가'
         change = item['since_selected_pct']
         low_change = item['since_low_pct']
         change_class = 'up' if change is not None and change >= 0 else 'down'
@@ -52,11 +72,15 @@ def _summary_html(entries, summaries):
         stale = (' <span class="watch-sum-stale">시총·재무는 지정 당시</span>'
                  if item['financial_source'] != '현재 수집 데이터' else '')
         cards.append(
-            f'<div class="watch-sum-row">'
+            f'<div class="watch-sum-row {"is-signal" if status == "confirmed" else ""}">'
+            f'<div class="watch-sum-signal {signal_class}"><strong>{signal_label}</strong>'
+            f'<small>{signal_detail}</small></div>'
+            f'<div class="watch-sum-main">'
             f'<div class="watch-sum-line">'
             f'<strong class="watch-sum-name">{name}</strong><span class="watch-sum-code">{code_html}</span>'
-            f'<span>지정 {selected_date} <small>(기준종가 {_price(number(entry.get("price")))})</small></span>'
-            f'<span title="{source} · {price_date}">{source} {_price(item["price"])}</span>'
+            f'<span title="지정일 {selected_date} · 기준종가 {_price(number(entry.get("price")))}">'
+            f'지정 {selected_short} <small>기준 {_price(number(entry.get("price")))}</small></span>'
+            f'<span title="{source} · {price_date}">{price_label} {_price(item["price"])}</span>'
             f'<span class="{change_class}">지정 후 {_pct(change)}</span>'
             f'<span title="장중 저가 · {low_date}">60일 저점 {_price(item["low_60d"])}</span>'
             f'<span class="{low_class}">저점 대비 {_pct(low_change)}</span>'
@@ -67,16 +91,28 @@ def _summary_html(entries, summaries):
             f'<span>거래대금≈ {turnover}</span>'
             f'<span>매출 26E→28E {_forecast(item["revenue_2026"], item["revenue_2028"])}</span>'
             f'<span>영익 26E→28E {_forecast(item["op_2026"], item["op_2028"])}</span>'
-            f'{stale}</div></div>'
+            f'{stale}</div></div></div>'
         )
     return '<div class="watch-sum-list">' + ''.join(cards) + '</div>'
 
 
 _SUMMARY_STYLE = '''<style>
 .watch-sum-list { display:flex; flex-direction:column; gap:6px; margin-bottom:14px; }
-.watch-sum-row { background:#263647; border:1px solid #56697D; border-radius:9px;
-                 padding:9px 12px; color:#EAF2FC; }
-.watch-sum-line { display:flex; flex-wrap:wrap; align-items:center; gap:5px 16px;
+.watch-sum-row { display:grid; grid-template-columns:130px minmax(0,1fr); gap:10px;
+                 align-items:center; background:#263647; border:1px solid #56697D;
+                 border-radius:9px; padding:9px 12px; color:#EAF2FC; }
+.watch-sum-row.is-signal { background:linear-gradient(110deg,#473B22,#263647 42%);
+                            border:2px solid #FBBF24; box-shadow:0 0 0 2px rgba(251,191,36,.12); }
+.watch-sum-main { min-width:0; }
+.watch-sum-signal { min-height:48px; border-radius:7px; padding:5px 7px;
+                    display:flex; flex-direction:column; justify-content:center;
+                    align-items:center; gap:2px; text-align:center; background:#1A2735;
+                    color:#AEC1D3; font-size:.77rem; }
+.watch-sum-signal small { font-size:.65rem; line-height:1.2; }
+.watch-sum-signal.confirmed { background:#FBBF24; color:#1A1C24; }
+.watch-sum-signal.pending { background:#286A83; color:#FFFFFF; }
+.watch-sum-signal.unavailable { color:#889CAE; }
+.watch-sum-line { display:flex; flex-wrap:wrap; align-items:center; gap:5px 9px;
                   font-size:0.82rem; line-height:1.4; }
 .watch-sum-line + .watch-sum-line { margin-top:4px; }
 .watch-sum-name { font-size:0.95rem; color:#FFFFFF; }
@@ -85,6 +121,11 @@ _SUMMARY_STYLE = '''<style>
 .watch-sum-line .up { color:#34D399; font-weight:700; }
 .watch-sum-line .down { color:#F87171; font-weight:700; }
 .watch-sum-stale { color:#FBBF24; }
+@media (max-width:768px) {
+  .watch-sum-row { grid-template-columns:1fr; gap:6px; }
+  .watch-sum-signal { min-height:0; flex-direction:row; justify-content:flex-start;
+                      align-items:center; gap:8px; }
+}
 </style>'''
 
 
@@ -159,7 +200,7 @@ def render_watchlist(all_df, render_card, prepare, data_as_of):
         return
     query = st.text_input('관심종목 검색', key='watch_search').strip().lower()
     entries = [e for e in entries.values() if query in (e['name'] + e['code']).lower()]
-    st.caption(f'{len(entries)}개 · 최신 등록순 · 재등록 시 기준일과 기준 가격이 새로 설정됩니다.')
+    st.caption(f'{len(entries)}개 · 요약 정렬을 바꿔 비교할 수 있습니다. 재등록 시 기준일과 기준 가격이 새로 설정됩니다.')
     if not entries:
         st.info('검색 조건에 맞는 관심종목이 없습니다.')
         return
@@ -172,10 +213,15 @@ def render_watchlist(all_df, render_card, prepare, data_as_of):
 
     st.markdown('#### 관심종목 한눈에 보기')
     st.caption(f'현재가·시총 등 캐시 자료의 수집 시점은 {data_as_of}입니다. 60일 저점은 최근 60일(달력일) 완료 일봉의 장중 저가입니다. 캐시 가격이 없거나 일봉보다 오래되면 최근 완료 종가를 씁니다. 거래대금은 표시 가격×해당 거래량 추정치입니다.')
+    st.caption('🚀 신호 확인: 완료 일봉 종가가 직전 20거래일 고점을 돌파하고 그날 추정 거래대금이 이전 20거래일 평균의 2배 이상이며, 다음 거래일에도 그 고점 위에서 마감한 경우입니다. 최근 5거래일 신호만 표시하며 종가가 고점 아래로 내려오면 해제합니다. 매수 신호가 아닌 관찰용입니다.')
     sort_options = {'거래량 증가순': 'volume_multiple', '거래대금순': 'turnover_eok',
                     '지정 후 상승률순': 'since_selected_pct', '60일 저점 반등순': 'since_low_pct'}
-    sort_label = st.selectbox('요약 정렬', ['최근 등록순', *sort_options], key='watch_summary_sort')
-    if sort_label in sort_options:
+    sort_label = st.selectbox('요약 정렬', ['신호 우선', '최근 등록순', *sort_options], key='watch_summary_sort')
+    if sort_label == '신호 우선':
+        signal_rank = {'confirmed': 2, 'pending': 1}
+        entries.sort(key=lambda e: (signal_rank.get(summaries[e['code']]['signal']['status'], 0),
+                                    summaries[e['code']]['signal'].get('turnover_multiple', 0)), reverse=True)
+    elif sort_label in sort_options:
         field = sort_options[sort_label]
         entries.sort(key=lambda e: summaries[e['code']][field]
                      if summaries[e['code']][field] is not None else float('-inf'), reverse=True)

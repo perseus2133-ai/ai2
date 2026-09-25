@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from watchlist import WatchStore, make_entry, opinion, summary
+from watchlist import WatchStore, attention_signal, make_entry, opinion, summary
 
 
 def entry():
@@ -119,6 +119,49 @@ def test_summary_does_not_compare_pre_registration_price():
     assert result['since_selected_pct'] is None
 
 
+def signal_chart(extra=0):
+    start = dt.date(2026, 8, 1)
+    rows = [{'date': (start + dt.timedelta(days=i)).isoformat(), 'close': 100,
+             'high': 101, 'low': 99, 'volume': 1000} for i in range(22 + extra)]
+    rows[20].update(close=105, high=106, volume=2000)
+    rows[21].update(close=103, high=104)
+    for row in rows[22:]:
+        row.update(close=103, high=104)
+    return {'end': rows[-1]['date'], 'rows': rows}
+
+
+def test_attention_signal_needs_breakout_turnover_and_next_close():
+    chart = signal_chart()
+    result = attention_signal(chart)
+    assert result['status'] == 'confirmed'
+    assert result['breakout_date'] == chart['rows'][20]['date']
+    assert result['date'] == chart['rows'][21]['date']
+    assert result['turnover_multiple'] == pytest.approx(2.1)
+
+    pending = {'end': chart['rows'][20]['date'], 'rows': chart['rows'][:21]}
+    assert attention_signal(pending)['status'] == 'pending'
+
+    weak_turnover = signal_chart()
+    weak_turnover['rows'][20]['volume'] = 1800
+    assert attention_signal(weak_turnover)['status'] == 'none'
+
+    failed_confirm = signal_chart()
+    failed_confirm['rows'][21]['close'] = 101
+    assert attention_signal(failed_confirm)['status'] == 'none'
+
+
+def test_attention_signal_expires_or_cancels_when_price_falls():
+    assert attention_signal(signal_chart(extra=4))['status'] == 'confirmed'
+    assert attention_signal(signal_chart(extra=5))['status'] == 'none'
+    fallen = signal_chart(extra=2)
+    fallen['rows'][-1]['close'] = 100
+    assert attention_signal(fallen)['status'] == 'none'
+    stale = signal_chart()
+    stale['end'] = (dt.date.fromisoformat(stale['end']) + dt.timedelta(days=8)).isoformat()
+    assert attention_signal(stale)['status'] == 'stale'
+    assert attention_signal({'rows': []})['status'] == 'insufficient'
+
+
 def test_summary_list_shows_every_entry_and_escapes_names():
     import watchlist_ui as ui
     entries = [dict(entry(), code=f'{i:06d}', name='<script>alert(1)</script>' if i == 0 else f'종목{i}')
@@ -128,11 +171,18 @@ def test_summary_list_shows_every_entry_and_escapes_names():
              'since_low_pct': None, 'market_cap': None, 'volume': None,
              'volume_multiple': None, 'turnover_eok': None,
              'revenue_2026': None, 'revenue_2028': None,
-             'op_2026': None, 'op_2028': None, 'financial_source': '지정 당시 저장값'}
+             'op_2026': None, 'op_2028': None, 'financial_source': '지정 당시 저장값',
+             'signal': {'status': 'none'}}
     markup = ui._summary_html(entries, {e['code']: blank for e in entries})
-    assert markup.count('class="watch-sum-row"') == 12
+    assert markup.count('class="watch-sum-row ') == 12
     assert '&lt;script&gt;' in markup
     assert '<script>' not in markup
+
+    highlighted = dict(blank, signal={'status': 'confirmed', 'date': '2026-09-23',
+                                      'turnover_multiple': 2.4})
+    markup = ui._summary_html(entries[:1], {entries[0]['code']: highlighted})
+    assert 'watch-sum-row is-signal' in markup
+    assert '신호 확인' in markup
 
 
 def ui_app():

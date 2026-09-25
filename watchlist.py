@@ -50,6 +50,62 @@ def opinion(row, candles):
     return '\n\n'.join(parts)
 
 
+def attention_signal(candles):
+    """완료 일봉만으로 거래대금 급증·20일 고점 돌파·다음날 유지를 확인한다.
+
+    확인 신호는 확인일부터 5거래일 동안만 유효하고, 마지막 종가가 돌파
+    기준가 아래로 내려가면 즉시 해제한다. 매수 판단이 아닌 관찰용이다.
+    """
+    rows = sorted((candles or {}).get('rows', []), key=lambda r: r['date'])
+    if len(rows) < 21:
+        return {'status': 'insufficient'}
+    try:
+        end = dt.date.fromisoformat((candles or {}).get('end', ''))
+        latest_day = dt.date.fromisoformat(rows[-1]['date'])
+    except (TypeError, ValueError, KeyError):
+        return {'status': 'insufficient'}
+    if not 0 <= (end - latest_day).days <= 7:
+        return {'status': 'stale'}
+
+    def breakout(index):
+        prior = rows[index-20:index]
+        highs = [number(r.get('high')) for r in prior]
+        turnovers = [(number(r.get('close')), number(r.get('volume'))) for r in prior]
+        close = number(rows[index].get('close'))
+        volume = number(rows[index].get('volume'))
+        if (len(prior) != 20 or any(v is None or v <= 0 for v in highs)
+                or any(c is None or c <= 0 or v is None or v < 0 for c, v in turnovers)
+                or close is None or close <= 0 or volume is None or volume < 0):
+            return None
+        prior_high = max(highs)
+        avg_turnover = sum(c * v for c, v in turnovers) / 20
+        if avg_turnover <= 0:
+            return None
+        multiple = close * volume / avg_turnover
+        return (prior_high, multiple) if close > prior_high and multiple >= 2 else None
+
+    last = len(rows) - 1
+    for confirm in range(last, max(20, last-5), -1):
+        event = breakout(confirm - 1)
+        if event is None:
+            continue
+        prior_high, multiple = event
+        confirmed_close = number(rows[confirm].get('close'))
+        latest_close = number(rows[last].get('close'))
+        if (confirmed_close is not None and confirmed_close > prior_high
+                and latest_close is not None and latest_close > prior_high):
+            return {'status': 'confirmed', 'date': rows[confirm]['date'],
+                    'breakout_date': rows[confirm-1]['date'],
+                    'turnover_multiple': multiple, 'breakout_level': prior_high}
+
+    if last >= 20:
+        event = breakout(last)
+        if event is not None:
+            return {'status': 'pending', 'date': rows[last]['date'],
+                    'turnover_multiple': event[1], 'breakout_level': event[0]}
+    return {'status': 'none'}
+
+
 def summary(entry, row, candles, data_as_of):
     """관심종목 요약 수치. 60일은 최근 완료 일봉일 기준 달력일이다."""
     rows = candles.get('rows', []) if candles else []
@@ -108,6 +164,7 @@ def summary(entry, row, candles, data_as_of):
         'op_2026': number(source.get('영업이익_2026')),
         'op_2028': number(source.get('영업이익_2028')),
         'financial_source': '현재 수집 데이터' if row is not None else '지정 당시 저장값',
+        'signal': attention_signal(candles),
     }
 
 
