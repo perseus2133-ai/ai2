@@ -135,6 +135,8 @@ def test_card_integration_has_separate_candles_above_growth(monkeypatch):
     app.session_state['password_correct'] = True
     app.run(timeout=30)
     assert not app.exception
+    op_size_radio = next(r for r in app.radio if r.label == '영업이익 규모')
+    assert op_size_radio.options == ['300억 이상', '500억 이상', '1000억 이상']
     cards = [m.value for m in app.markdown if '<div class="quant-card-dark">' in m.value]
     assert cards
     for card in cards:
@@ -144,6 +146,7 @@ def test_card_integration_has_separate_candles_above_growth(monkeypatch):
         assert '최근 6개월 · 일봉' in card
         assert 'qcd-chart-link' in card
         assert 'target="_blank"' in card
+        assert 'qcd-op-band' in card
 
 
 @pytest.mark.parametrize('period', [5, 20, 60])

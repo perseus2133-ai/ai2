@@ -552,6 +552,11 @@ div[data-testid="stVerticalBlock"] > div:has(div.element-container) {
     white-space: nowrap;
 }
 .qcd-sector-sep { color: #64748B; }
+.qcd-op-band {
+    border: 1px solid #66788B; border-radius: 999px;
+    padding: 2px 8px; color: #D7E6F5;
+    font-size: 0.7rem; font-weight: 600; white-space: nowrap;
+}
 /* 기업개요 — 헤더 아래 한 줄, 구도를 흐트러뜨리지 않게 낮은 대비 */
 .qcd-profile {
     margin-top: 8px;
@@ -1812,16 +1817,13 @@ def apply_filters(df, rev_thresh, op_thresh, min_vol, markets, req_min_rev_500=T
     df = df.copy()
     df['영업이익_26이후_최대'] = df.apply(_op_max_26, axis=1)
 
-    # 영업이익 규모 필터 (단위: 억)
-    if op_size_label == "300억 이하":
-        df = df[df['영업이익_26이후_최대'].notna() & (df['영업이익_26이후_최대'] <= 300)]
-    elif op_size_label == "500억 이상":
-        df = df[df['영업이익_26이후_최대'].notna() & (df['영업이익_26이후_최대'] >= 500)]
+    # 포함형 영업이익 규모 필터 (단위: 억). 높은 기준의 결과는 낮은 기준에도 포함된다.
+    op_thresholds = {"300억 이상": 300, "500억 이상": 500, "1000억 이상": 1000}
+    if op_size_label in op_thresholds:
+        df = df[df['영업이익_26이후_최대'] >= op_thresholds[op_size_label]]
     # 구 라벨 호환 (저장된 설정/외부 호출이 옛 값을 넘겨도 동작하도록)
     elif op_size_label == "500억~1000억":
         df = df[df['영업이익_26이후_최대'].notna() & (df['영업이익_26이후_최대'] >= 500) & (df['영업이익_26이후_최대'] <= 1000)]
-    elif op_size_label == "1000억 이상":
-        df = df[df['영업이익_26이후_최대'].notna() & (df['영업이익_26이후_최대'] >= 1000)]
 
     def strict_financial_check(row):
         # 2023년은 메모리 사이클 침체 등 특수 상황으로 한국 사이클리컬 대형주
@@ -2503,6 +2505,19 @@ def check_password():
 # ============================================================
 # 메인 UI
 # ============================================================
+def operating_profit_band(value):
+    """2026~2028E 최대 영업이익(억원)의 서로 겹치지 않는 표시 구간."""
+    if pd.isna(value):
+        return ''
+    if value < 300:
+        return '300억 미만'
+    if value < 500:
+        return '300~500억'
+    if value < 1000:
+        return '500~1000억'
+    return '1000억 이상'
+
+
 def render_stock_card(row, rank, candle_data=None):
     watchlist_ui.card_button(row, candle_data, now_kst().date().isoformat())
     code = row.get('종목코드','')
@@ -2628,6 +2643,12 @@ def render_stock_card(row, rank, candle_data=None):
     ov23 = row.get('영업이익_2023', np.nan); ov24 = row.get('영업이익_2024', np.nan)
     ov25 = row.get('영업이익_2025', np.nan); ov26 = row.get('영업이익_2026', np.nan)
     ov27 = row.get('영업이익_2027', np.nan); ov28 = row.get('영업이익_2028', np.nan)
+    future_op_values = [v for v in (ov26, ov27, ov28) if pd.notna(v)]
+    op_band = operating_profit_band(max(future_op_values)) if future_op_values else ''
+    op_band_chip = (
+        f'<span class="qcd-op-band" title="2026~2028년 예상 영업이익 중 최대값 기준">'
+        f'영익 26~28E {op_band}</span>'
+    ) if op_band else ''
 
     def _yoy(curr, base):
         if pd.notna(curr) and pd.notna(base) and base != 0:
@@ -3061,6 +3082,7 @@ def render_stock_card(row, rank, candle_data=None):
         f'<span class="qcd-name">{name}</span>'
         f'<span class="qcd-code">{code_str}</span>'
         f'{sector_chip}'
+        f'{op_band_chip}'
         f'<div style="flex:1;"></div>'
         f'<a href="{nurl}" target="_blank" rel="noopener noreferrer" class="qcd-naver-link">'
         f'<svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" '
@@ -3297,11 +3319,11 @@ def main():
         st.markdown("### 💎 영업이익 규모 (2026년 이후)")
         op_size_label = st.radio(
             "영업이익 규모",
-            ["300억 이하", "500억 이상", "1000억 이상"],
+            ["300억 이상", "500억 이상", "1000억 이상"],
             index=1,
             horizontal=True,
             label_visibility="collapsed",
-            help="2026·2027·2028년 예상 영업이익 중 최대값(단위: 억) 기준으로 필터링합니다.",
+            help="2026·2027·2028년 예상 영업이익 중 최대값(단위: 억) 기준입니다. 높은 기준의 종목은 낮은 기준에도 포함됩니다.",
         )
 
         st.markdown("### 📊 유동성 필터")
