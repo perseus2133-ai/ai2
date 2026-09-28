@@ -1,6 +1,5 @@
 """Streamlit integration, separate from the durable storage engine."""
 import html
-import json
 import os
 from pathlib import Path
 
@@ -154,16 +153,6 @@ def initialize(base_dir):
             if repository or token:
                 store = GitHubWatchStore(repository, token)
                 backend = 'github'
-                # Preserve an existing server-local list when that file survives deployment.
-                marker = local_path.with_suffix('.github-migrated')
-                if local_path.is_file() and not marker.exists():
-                    backup = WatchStore(local_path).backup()
-                    if json.loads(backup)['entries']:
-                        store.restore(backup)
-                    try:
-                        marker.write_text('migrated', encoding='utf-8')
-                    except OSError:
-                        pass
             else:
                 store = WatchStore(local_path)
                 backend = 'local'

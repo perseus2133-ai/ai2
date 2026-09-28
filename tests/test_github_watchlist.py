@@ -130,7 +130,7 @@ def test_streamlit_uses_configured_github_store(tmp_path, monkeypatch):
     assert set(store(remote).entries()) == {'005930'}
 
 
-def test_surviving_server_database_is_migrated_only_once(tmp_path, monkeypatch):
+def test_existing_server_database_is_ignored_for_fresh_github_list(tmp_path, monkeypatch):
     from streamlit.testing.v1 import AppTest
     import watchlist_ui as ui
     from watchlist import WatchStore
@@ -147,9 +147,5 @@ def test_surviving_server_database_is_migrated_only_once(tmp_path, monkeypatch):
 
     at.run()
     assert not at.exception
-    assert set(store(remote).entries()) == {'005930'}
-
-    remote.data['entries'] = []
-    at.run()
-    assert not at.exception
     assert store(remote).entries() == {}
+    assert WatchStore(local).entries()['005930']['price'] == entry()['price']
