@@ -18,6 +18,7 @@ import os
 import json
 import io
 import snapshot_io
+from paper_performance import summarize_traded_stocks
 from auth_config import configured_password
 from stock_candles import candle_panel, load_candles, prefetch_candles
 import watchlist_ui
@@ -4411,6 +4412,36 @@ def main():
                         st.dataframe(pd.DataFrame(_rows), use_container_width=True, hide_index=True)
                     else:
                         st.caption("보유 종목 없음 (전량 현금)")
+
+                    # 매매한 모든 종목의 누적 성과 (전량 매도 종목도 포함)
+                    st.markdown("#### 전체 매매 종목별 손익")
+                    if _trades:
+                        _stock_results = summarize_traded_stocks(_trades, _last.get('holdings') or {})
+                        _result_rows = [{
+                            '종목명': row['name'], '종목코드': row['code'],
+                            '상태': row['status'], '첫 매수일': row['first_buy_date'],
+                            '최근 거래일': row['last_trade_date'],
+                            '총 매수금액': row['buy_amount'],
+                            '총 매도금액': row['sell_amount'],
+                            '현재 평가금액': row['market_value'],
+                            '누적 손익': row['profit'],
+                            '누적 수익률(%)': row['return_pct'],
+                        } for row in _stock_results]
+                        st.dataframe(
+                            pd.DataFrame(_result_rows), use_container_width=True,
+                            hide_index=True, height=420,
+                            column_config={
+                                '누적 수익률(%)': st.column_config.NumberColumn(
+                                    '누적 수익률(%)', format='%+.2f%%'),
+                            },
+                        )
+                        st.caption(
+                            "누적 손익 = 총 매도금액 + 현재 평가금액 − 총 매수금액. "
+                            "누적 수익률은 누적 손익 ÷ 총 매수금액이며, 부분 매도·재매수를 포함합니다. "
+                            "평가가가 없는 보유 종목은 손익과 수익률을 표시하지 않습니다."
+                        )
+                    else:
+                        st.caption("매매 종목 기록 없음")
 
                     # 거래 일지
                     st.markdown("#### 거래 일지 (사유 포함)")
