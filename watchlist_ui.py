@@ -1,5 +1,6 @@
 """Streamlit integration, separate from the durable storage engine."""
 import html
+import json
 import os
 from pathlib import Path
 
@@ -8,6 +9,7 @@ import streamlit as st
 
 from stock_candles import load_candles, prefetch_candles
 from watchlist import WatchStore, make_entry, number, opinion, summary
+from github_watchlist import GitHubWatchStore
 
 
 def _eok(value):
@@ -129,17 +131,50 @@ _SUMMARY_STYLE = '''<style>
 </style>'''
 
 
+def _setting(name):
+    value = os.environ.get(name)
+    if value is not None:
+        return value
+    try:
+        return st.secrets.get(name)
+    except (FileNotFoundError, KeyError):
+        return None
+
+
 def initialize(base_dir):
     st.session_state['_watch_keys'] = {}
     try:
-        path = os.environ.get('AI2_WATCHLIST_DB', str(Path(base_dir) / 'private_data' / 'watchlist.sqlite3'))
-        store = WatchStore(path)
+        local_path = Path(base_dir) / 'private_data' / 'watchlist.sqlite3'
+        if 'AI2_WATCHLIST_DB' in os.environ:
+            store = WatchStore(os.environ['AI2_WATCHLIST_DB'])
+            backend = 'local'
+        else:
+            repository = _setting('AI2_WATCHLIST_GITHUB_REPO')
+            token = _setting('AI2_WATCHLIST_GITHUB_TOKEN')
+            if repository or token:
+                store = GitHubWatchStore(repository, token)
+                backend = 'github'
+                # Preserve an existing server-local list when that file survives deployment.
+                marker = local_path.with_suffix('.github-migrated')
+                if local_path.is_file() and not marker.exists():
+                    backup = WatchStore(local_path).backup()
+                    if json.loads(backup)['entries']:
+                        store.restore(backup)
+                    try:
+                        marker.write_text('migrated', encoding='utf-8')
+                    except OSError:
+                        pass
+            else:
+                store = WatchStore(local_path)
+                backend = 'local'
         st.session_state['_watch_entries'] = store.entries()
         st.session_state['_watch_store'] = store
+        st.session_state['_watch_backend'] = backend
     except Exception:
         st.session_state['_watch_store'] = None
         st.session_state['_watch_entries'] = {}
-        st.error('관심목록 저장소를 읽을 수 없습니다. 기존 파일은 초기화하지 않았습니다.')
+        st.session_state['_watch_backend'] = None
+        st.error('관심목록 저장소를 읽을 수 없습니다. GitHub 저장소·토큰 설정 또는 연결 상태를 확인해 주세요. 기존 기록은 초기화하지 않았습니다.')
 
 
 def _add_entry(row, candles, today):
@@ -193,6 +228,10 @@ def render_watchlist(all_df, render_card, prepare, data_as_of):
     store = st.session_state.get('_watch_store')
     if store is None:
         return
+    if st.session_state.get('_watch_backend') == 'github':
+        st.info('동일 앱 비밀번호를 사용하는 분들이 공유하는 목록입니다. 비공개 GitHub 저장소에 저장되어 다른 PC에서도 같은 목록을 볼 수 있습니다.')
+    else:
+        st.warning('현재 서버 디스크에 저장 중입니다. 재배포·서버 교체 시 목록이 사라질 수 있습니다. 비공개 GitHub 저장 설정이 필요합니다.')
     entries = st.session_state['_watch_entries']
     if not entries:
         st.info('기존 종목 카드의 ☆ 관심종목 등록 버튼으로 추가해 주세요.')
@@ -228,7 +267,6 @@ def render_watchlist(all_df, render_card, prepare, data_as_of):
                      if summaries[e['code']][field] is not None else float('-inf'), reverse=True)
     st.markdown(_SUMMARY_STYLE, unsafe_allow_html=True)
     st.markdown(_summary_html(entries, summaries), unsafe_allow_html=True)
-    st.info('동일 앱 비밀번호를 사용하는 분들이 공유하는 목록입니다. 서버 디스크에 저장되므로 재배포·서버 교체 시 유실될 수 있습니다. 영구 디스크 설정 또는 아래 JSON 백업을 사용해 주세요.')
     _backup_controls(store)
 
     page = st.number_input('관심목록 페이지', min_value=1, max_value=max(1, (len(entries)+9)//10), value=1, step=1, key='watch_page')

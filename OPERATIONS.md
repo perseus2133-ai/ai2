@@ -7,10 +7,26 @@
   자동 해설을 고정 저장한다. 당일 체결가/실제 매수 수익률이 아니며 기업행사·배당은 보정하지 않는다.
 - 6개월 일봉·거래량·5/20/60일선, 현재 재무 정보, 지정 후 등락률, 실적 추정치 변화가 표시된다.
 - AI 의견은 외부 LLM 호출 없이 지표에서 생성하는 **규칙 기반 해설**이다. 새 공시나 뉴스를 읽지 않는다.
-- SQLite 기본 경로는 `private_data/watchlist.sqlite3` (Git 제외). `AI2_WATCHLIST_DB` 환경변수로
-  영구 디스크의 경로를 지정할 수 있다. 외부 API 키나 권한은 필요 없다.
-- Streamlit 임시 서버 디스크는 재배포 시 보존을 보장하지 않는다. 앱의 JSON 다운로드로 백업하고
-  복원 시 기존 종목 최초 기록을 유지하며 병합한다. 지속적인 클라우드 사용에는 영구 디스크/DB 연결이 필요하다.
+- 운영 목록은 별도 비공개 저장소 `perseus2133-ai/ai2-watchlist-data`의 `watchlist.json`에 저장한다.
+  공개 `ai2` 저장소에는 관심종목 데이터나 인증 토큰을 넣지 않는다.
+- Streamlit Community Cloud 앱 설정의 Secrets에 아래 값을 등록한다. GitHub fine-grained token은
+  **`ai2-watchlist-data` 저장소 하나만 선택**하고 `Contents: Read and write` 권한만 준다.
+  토큰을 코드·GitHub Actions Secret·브라우저에 넣지 않는다.
+
+  ```toml
+  AI2_WATCHLIST_GITHUB_REPO = "perseus2133-ai/ai2-watchlist-data"
+  AI2_WATCHLIST_GITHUB_TOKEN = "<GitHub fine-grained token>"
+  ```
+
+- 서버는 등록·해제·백업 복원 때 GitHub의 최신 파일 SHA를 읽고 갱신한다. 충돌하면 최신 목록을 다시
+  읽어 변경을 적용한다. 인증·연결 오류 시 빈 목록으로 대체하거나 로컬 파일에 몰래 저장하지 않는다.
+- 이전 서버의 `private_data/watchlist.sqlite3`가 배포 후에도 남아 있으면 한 번만 GitHub에 병합한다.
+  서버 교체로 파일이 이미 사라졌다면 집 화면에서 `관심목록 백업 및 복원 → JSON 백업 다운로드`를
+  실행해 파일을 보관한 뒤, 새 앱의 `백업 병합 복원`으로 옮긴다. 복원은 기존 종목의 최초 기록을 유지한다.
+- GitHub 설정이 없을 때만 기존 SQLite(`private_data/watchlist.sqlite3`)를 사용한다.
+  `AI2_WATCHLIST_DB` 환경변수는 로컬 테스트·운영자가 지정한 영구 디스크 경로에 우선 적용된다.
+  화면에 서버 저장 경고가 보이면 다른 PC 간 동기화와 재배포 후 보존을 보장하지 않는다.
+- GitHub 저장소에서 종목을 해제해도 이전 버전의 기록은 비공개 저장소의 커밋 이력에 남을 수 있다.
 - 앱 비밀번호 공유 사용자들은 **같은 목록**을 본다. 개인별 계정 분리는 제공하지 않는다.
 - 해제는 확인 체크 후 삭제하며 재등록하면 기준일/가격이 새로 설정된다. 삭제 전 백업을 권장한다.
 - 데이터에서 사라진 종목은 마지막 시세를 새 값처럼 표시하지 않고 지정 당시 스냅샷임을 경고한다.
