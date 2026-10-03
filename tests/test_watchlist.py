@@ -193,7 +193,25 @@ def ui_app():
     st.session_state['_watch_render_count'] = st.session_state.get('_watch_render_count', 0) + 1
     ui.initialize('.')
     ui.st.session_state['_watch_data_as_of'] = '2026-09-24'
-    frame = pd.read_csv('data/consensus_data.csv', dtype={'종목코드': str}).head(1)
+    # Keep the UI fixture independent of the daily crawl's stock order and values.
+    stock = {
+        '종목코드': '005930', '종목명': '테스트', '시장': 'KOSPI', '업종': '테스트업종',
+        '현재가': 100., '시가총액': 3000., 'Recent_Volume': 100.,
+        '평균거래량_20d': 100., '거래량배수': 1., 'PER': 10., 'PBR': 1.,
+        'ROE': 15., '부채비율': 100., '순차입금': 0., '지배비율': 1.,
+        'OBV_trend': 'up', 'RSI': 55., '저항선': 110., '지지선': 90.,
+        'MA_align': 'up', 'MACD_signal': 'bull',
+        '외인_5d': 100., '외인_20d': 100., '기관_5d': 100., '기관_20d': 100.,
+    }
+    for year in range(2023, 2029):
+        stock[f'매출액_{year}'] = 1000. + (year - 2023) * 100.
+        stock[f'영업이익_{year}'] = 100. + (year - 2023) * 100.
+        if year >= 2025:
+            for metric in ('매출액', '영업이익'):
+                stock[f'{metric}_성장률_{year}'] = (
+                    stock[f'{metric}_{year}'] / stock[f'{metric}_{year - 1}'] - 1
+                ) * 100
+    frame = pd.DataFrame([stock])
     row = app.compute_card_fields(frame).iloc[0]
     chart = {'rows': [{'date': '2026-09-23', 'open': 100, 'high': 110, 'low': 90,
                        'close': 100, 'volume': 100, 'ma5': 100, 'ma20': 99, 'ma60': 98}],
@@ -217,7 +235,9 @@ def test_ui_add_rerun_missing_record_and_remove(tmp_path, monkeypatch):
     next(b for b in at.button if b.label == '☆ 관심종목 등록').click().run()
     assert not at.exception
     assert at.session_state['_watch_render_count'] == before + 1
-    assert len(WatchStore(tmp_path / 'watch.sqlite3').entries()) == 1
+    saved = WatchStore(tmp_path / 'watch.sqlite3').entries()
+    assert set(saved) == {'005930'}
+    assert saved['005930']['price'] == 100
     assert any('AI 의견' in m.value for m in at.markdown)
     assert any('watch-sum-list' in m.value and '60일 저점' in m.value for m in at.markdown)
     at.checkbox(key='missing').check().run()
