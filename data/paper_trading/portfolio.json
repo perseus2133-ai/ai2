@@ -14,7 +14,7 @@
       "종목명": "디아이",
       "shares": 812,
       "avg_price": 26650.0,
-      "peak_price": 37100.0,
+      "peak_price": 42500.0,
       "bought": "2026-09-02",
       "tp50_done": false,
       "tp100_done": false
@@ -23,7 +23,7 @@
       "종목명": "PS일렉트로닉스",
       "shares": 2565,
       "avg_price": 8880.0,
-      "peak_price": 9020.0,
+      "peak_price": 9280.0,
       "bought": "2026-09-23",
       "tp50_done": false,
       "tp100_done": false
@@ -32,7 +32,7 @@
       "종목명": "S-Oil",
       "shares": 146,
       "avg_price": 158200.0,
-      "peak_price": 158200.0,
+      "peak_price": 164900.0,
       "bought": "2026-09-30",
       "tp50_done": false,
       "tp100_done": false
@@ -41,7 +41,7 @@
       "종목명": "삼성전자",
       "shares": 84,
       "avg_price": 275000.0,
-      "peak_price": 275000.0,
+      "peak_price": 276000.0,
       "bought": "2026-09-30",
       "tp50_done": false,
       "tp100_done": false
