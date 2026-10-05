@@ -19,6 +19,12 @@ import json
 import io
 import snapshot_io
 from paper_performance import summarize_traded_stocks
+from paper_benchmarks import fetch_index, comparison_curve
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_paper_index(symbol, start, end):
+    return fetch_index(symbol, start, end)
 from auth_config import configured_password
 from stock_candles import candle_panel, load_candles, prefetch_candles
 import watchlist_ui
@@ -4385,13 +4391,29 @@ def main():
                     pc3.metric("시작일", _pf.get('started', '-'))
                     pc4.metric("마지막 리밸런싱", _pf.get('last_rebalance', '-'))
 
-                    # 평가액 곡선
+                    # 동일 시작일을 100으로 맞춘 시장 대비 성과
                     if len(_hist) >= 2:
-                        _curve = pd.DataFrame(
-                            {'평가액': [e['total'] for e in _hist]},
-                            index=pd.to_datetime([e['date'] for e in _hist]),
-                        )
-                        st.line_chart(_curve, height=260)
+                        _ordered = sorted(_hist, key=lambda e: e['date'])
+                        _indices = {}
+                        for _label, _symbol in [('코스피', '^KS11'), ('S&P 500 (USD)', '^GSPC')]:
+                            try:
+                                _indices[_label] = load_paper_index(
+                                    _symbol, _ordered[0]['date'], _ordered[-1]['date'])
+                            except Exception:
+                                st.warning(f'{_label} 지수 조회 실패 — 잠시 후 다시 확인해주세요.')
+                        _curve = comparison_curve(_ordered, _indices)
+                        st.line_chart(_curve, height=300)
+                        _metrics = st.columns(len(_curve.columns))
+                        for _column, _label in zip(_metrics, _curve.columns):
+                            _return = _curve[_label].iloc[-1] - 100
+                            _excess = _curve['모의투자'].iloc[-1] - _curve[_label].iloc[-1]
+                            _column.metric(
+                                _label, f'{_return:+.2f}%',
+                                f'모의투자 초과수익 {_excess:+.2f}%p' if _label != '모의투자' else None)
+                        st.caption(
+                            f"비교기간: {_ordered[0]['date']} ~ {_ordered[-1]['date']} · 시작값 100. "
+                            "휴장일은 직전 종가 유지. S&P 500은 한국시간에 마감된 종가 기준이며 "
+                            "달러 기준(환율 미반영)입니다. 지수 배당 재투자는 포함하지 않습니다.")
                     else:
                         st.caption("평가액 곡선은 이틀 이상 기록이 쌓이면 표시됩니다.")
 
