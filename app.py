@@ -29,6 +29,7 @@ def load_paper_index(symbol, start, end):
 from auth_config import configured_password
 from stock_candles import candle_panel, load_candles, prefetch_candles
 import watchlist_ui
+from market_strength_ui import render_market_strength
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from zoneinfo import ZoneInfo
 import warnings
@@ -3633,20 +3634,25 @@ def main():
             'card_sort', 'card_sort_order', 'rev_tab_thresh', 'search_q',
             'vd_scope', 'vd_side', 'vd_pick', 'vd_sort', 'vd_both',
             'lead_sector', 'sector_choice', 'watch_search', 'watch_page', 'watch_summary_sort',
+            'market_horizon', 'market_positive', 'market_sort', 'market_detail',
         ):
             if widget_key in st.session_state:
                 st.session_state[widget_key] = st.session_state[widget_key]
 
         # 탭 전환 시 선택된 탭만 계산하고 렌더링한다.
-        (tab_cards, tab_rev, tab_ai, tab_verdict, tab_search, tab_lead,
+        (tab_cards, tab_strength, tab_rev, tab_ai, tab_verdict, tab_search, tab_lead,
          tab_sector, tab_table, tab_hist, tab_paper, tab_watch) = st.tabs([
-            "📋 종목 카드 뷰", "🚀 컨센 상향", "🤖 AI 3선",
+            "📋 종목 카드 뷰", "📈 시장을 이기는 종목", "🚀 컨센 상향", "🤖 AI 3선",
             "🎯 판정별 분류", "🔍 개별종목확인",
             "🔥 주도업종 저평가",
             "🏢 업종별 테마순위", "📊 데이터 테이블", "📅 누적 기록",
             "💰 모의투자",
             "⭐ 관심종목 · 한눈에 보기",
         ], key="main_tabs", on_change="rerun")
+
+        if tab_strength.open:
+            with tab_strength:
+                render_market_strength(df, cache_ts.isoformat(), render_stock_card)
 
         st.session_state['_watch_data_as_of'] = cache_ts.isoformat()
         if tab_watch.open:
