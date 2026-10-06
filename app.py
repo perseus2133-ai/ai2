@@ -20,6 +20,7 @@ import io
 import snapshot_io
 from paper_performance import summarize_traded_stocks
 from paper_benchmarks import fetch_index, comparison_curve
+from paper_chart import performance_chart
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -4402,7 +4403,7 @@ def main():
                             except Exception:
                                 st.warning(f'{_label} 지수 조회 실패 — 잠시 후 다시 확인해주세요.')
                         _curve = comparison_curve(_ordered, _indices)
-                        st.line_chart(_curve, height=300)
+                        st.altair_chart(performance_chart(_curve), use_container_width=True)
                         _metrics = st.columns(len(_curve.columns))
                         for _column, _label in zip(_metrics, _curve.columns):
                             _return = _curve[_label].iloc[-1] - 100

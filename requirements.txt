@@ -1,5 +1,6 @@
 ﻿streamlit==1.64.0
 pandas
+altair>=5,<7
 numpy
 tzdata
 requests
