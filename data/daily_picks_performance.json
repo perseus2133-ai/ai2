@@ -1,7 +1,7 @@
 {
  "schema_version": 1,
- "cutoff": "2026-10-09",
- "history_digest": "3e269bf29695aa2edc7f485e30df75d3f1054ba3ddeee9985703e4064738d1c6",
+ "cutoff": "2026-10-10",
+ "history_digest": "c13f6fca58cbb3151071e577a88b4c1f9aec61c7ab01bc222b1e999b75afad7d",
  "rows": [
   {
    "code": "402340",
@@ -4689,6 +4689,6 @@
    }
   }
  },
- "generated_at": "2026-10-10T06:35:03.660619+09:00",
- "selection_data_timestamp": "2026-10-10T06:35:01.929564+09:00"
+ "generated_at": "2026-10-11T05:34:16.774708+09:00",
+ "selection_data_timestamp": "2026-10-11T05:34:14.892464+09:00"
 }
